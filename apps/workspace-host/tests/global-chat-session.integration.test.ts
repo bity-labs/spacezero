@@ -134,6 +134,48 @@ const cancelGlobalChatFollowUp = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const archiveGlobalChatSession = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/archive`, host.endpoint),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId }),
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
+const unarchiveGlobalChatSession = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/unarchive`, host.endpoint),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId }),
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
+const listGlobalChatSessions = async (
+  host: StartedHostServer,
+  clientCapability: string,
+) => {
+  const response = await fetch(
+    new URL("/v1/global-chat-sessions", host.endpoint),
+    { headers: authHeaders(clientCapability) },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
 const interruptGlobalChatTurn = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -1399,5 +1441,290 @@ describe("Global Chat Session Host protocol", () => {
     });
     expect(conflict.response.status).toBe(409);
     expect(conflict.body).toMatchObject({ code: "command_id_conflict" });
+  });
+
+  it("archives and unarchives a completed Global Chat Session with durable events, projections, and receipts", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const host = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "Global answer" }) },
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Archive me later",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await waitFor(() => {
+      expect(
+        readRows<{ state: string }>(
+          databasePath,
+          "SELECT state FROM chat_session_turns WHERE session_id = ?",
+          sessionId,
+        )[0]?.state,
+      ).toBe("completed");
+    });
+
+    const archiveCommandId = randomUUID();
+    const archived = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      archiveCommandId,
+    );
+    expect(archived.response.status).toBe(200);
+    expect(archived.body).toMatchObject({
+      session: { id: sessionId, archived: true },
+    });
+    expect(
+      (archived.body as { session: { archivedAt?: string } }).session
+        .archivedAt,
+    ).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // Idempotent replay of the same command and a fresh command against the
+    // same state both succeed without appending another archive event.
+    const replayed = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      archiveCommandId,
+    );
+    expect(replayed.response.status).toBe(200);
+    expect(replayed.body).toMatchObject({
+      session: { id: sessionId, archived: true },
+    });
+    const freshCommand = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+    );
+    expect(freshCommand.response.status).toBe(200);
+    expect(freshCommand.body).toMatchObject({
+      session: { id: sessionId, archived: true },
+    });
+    expect(
+      readRows<{ count: number }>(
+        databasePath,
+        "SELECT count(*) AS count FROM chat_session_events WHERE session_id = ? AND event_type = 'GlobalChatSessionArchivedV1'",
+        sessionId,
+      )[0]?.count,
+    ).toBe(1);
+    expect(
+      readRows<{ archived_at: string | null }>(
+        databasePath,
+        "SELECT archived_at FROM chat_sessions WHERE session_id = ?",
+        sessionId,
+      )[0]?.archived_at,
+    ).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // Archived sessions reject prompts and follow-ups with typed errors.
+    const rejectedPrompt = await submitGlobalChatPrompt(
+      host,
+      client.clientCapability,
+      sessionId,
+      "ignored",
+    );
+    expect(rejectedPrompt.response.status).toBe(409);
+    expect(rejectedPrompt.body).toMatchObject({
+      code: "global_chat_session_archived",
+    });
+    const rejectedFollowUp = await enqueueGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      "ignored",
+    );
+    expect(rejectedFollowUp.response.status).toBe(409);
+    expect(rejectedFollowUp.body).toMatchObject({
+      code: "global_chat_session_archived",
+    });
+
+    // Archived sessions stay readable.
+    const archivedMessages = await listGlobalChatMessages(
+      host,
+      client.clientCapability,
+      sessionId,
+    );
+    expect(archivedMessages.response.status).toBe(200);
+    expect(archivedMessages.body).toMatchObject({
+      session: { id: sessionId, archived: true },
+    });
+
+    const listedWhileArchived = await listGlobalChatSessions(
+      host,
+      client.clientCapability,
+    );
+    expect(listedWhileArchived.body).toMatchObject({
+      sessions: [{ id: sessionId, archived: true }],
+    });
+
+    const unarchiveCommandId = randomUUID();
+    const unarchived = await unarchiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      unarchiveCommandId,
+    );
+    expect(unarchived.response.status).toBe(200);
+    expect(unarchived.body).toMatchObject({
+      session: { id: sessionId, archived: false },
+    });
+    expect(
+      (unarchived.body as { session: { archivedAt?: string } }).session,
+    ).not.toHaveProperty("archivedAt");
+    expect(
+      readRows<{ archived_at: string | null }>(
+        databasePath,
+        "SELECT archived_at FROM chat_sessions WHERE session_id = ?",
+        sessionId,
+      )[0]?.archived_at,
+    ).toBeNull();
+    expect(
+      readRows<{ event_type: string; sequence: number }>(
+        databasePath,
+        "SELECT event_type, sequence FROM chat_session_events WHERE session_id = ? AND event_type IN ('GlobalChatSessionArchivedV1', 'GlobalChatSessionUnarchivedV1') ORDER BY sequence ASC",
+        sessionId,
+      ),
+    ).toEqual([
+      { event_type: "GlobalChatSessionArchivedV1", sequence: expect.any(Number) },
+      {
+        event_type: "GlobalChatSessionUnarchivedV1",
+        sequence: expect.any(Number),
+      },
+    ]);
+
+    // The unarchived session accepts prompts again.
+    const resumed = await submitGlobalChatPrompt(
+      host,
+      client.clientCapability,
+      sessionId,
+      "Continue the conversation",
+    );
+    expect(resumed.response.status).toBe(200);
+    expect(resumed.body).toMatchObject({
+      session: { id: sessionId, archived: false },
+      userMessage: { text: "Continue the conversation" },
+    });
+    const listedAfterUnarchive = await listGlobalChatSessions(
+      host,
+      client.clientCapability,
+    );
+    expect(listedAfterUnarchive.body).toMatchObject({
+      sessions: [{ id: sessionId, archived: false }],
+    });
+  });
+
+  it("rejects archiving a Global Chat Session while an agent turn is in progress", async () => {
+    const root = await temp();
+    let partialEmitted!: () => void;
+    const partialEmittedPromise = new Promise<void>((resolve) => {
+      partialEmitted = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "text", order: 1, text: "partial" },
+        });
+        partialEmitted();
+        await new Promise<never>((_, reject) => {
+          if (input.signal?.aborted)
+            reject(new AgentTurnError("agent_turn_interrupted"));
+          input.signal?.addEventListener(
+            "abort",
+            () => reject(new AgentTurnError("agent_turn_interrupted")),
+            { once: true },
+          );
+        });
+        return { text: "" };
+      },
+    };
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "active prompt",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await partialEmittedPromise;
+
+    const archived = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+    );
+    expect(archived.response.status).toBe(409);
+    expect(archived.body).toMatchObject({
+      code: "global_chat_session_turn_in_progress",
+    });
+    expect(
+      readRows<{ archived_at: string | null }>(
+        join(root, "host.sqlite"),
+        "SELECT archived_at FROM chat_sessions WHERE session_id = ?",
+        sessionId,
+      )[0]?.archived_at,
+    ).toBeNull();
+  });
+
+  it("rejects archive command ID conflicts and unknown sessions with typed public errors", async () => {
+    const root = await temp();
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "answer" }) },
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Archive conflict probe",
+    );
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await waitFor(() => {
+      expect(
+        readRows<{ state: string }>(
+          join(root, "host.sqlite"),
+          "SELECT state FROM chat_session_turns WHERE session_id = ?",
+          sessionId,
+        )[0]?.state,
+      ).toBe("completed");
+    });
+
+    const conflictCommandId = randomUUID();
+    const archived = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      conflictCommandId,
+    );
+    expect(archived.response.status).toBe(200);
+    const reusedElsewhere = await unarchiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      conflictCommandId,
+    );
+    expect(reusedElsewhere.response.status).toBe(409);
+    expect(reusedElsewhere.body).toMatchObject({ code: "command_id_conflict" });
+
+    const missing = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      randomUUID(),
+    );
+    expect(missing.response.status).toBe(404);
+    expect(missing.body).toMatchObject({
+      code: "global_chat_session_not_found",
+    });
   });
 });

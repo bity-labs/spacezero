@@ -955,6 +955,44 @@ export const startHostServer = async (options: {
             ),
           ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
+        archiveGlobalChatSession: ({ headers, request, params, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.archiveSession(
+              params.sessionId,
+              payload.commandId,
+            ),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        unarchiveGlobalChatSession: ({ headers, request, params, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.unarchiveSession(
+              params.sessionId,
+              payload.commandId,
+            ),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
         submitGlobalChatSessionPrompt: ({
           headers,
           request,

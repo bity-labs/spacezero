@@ -139,6 +139,9 @@ export interface SavedConversationProjection {
   };
   readonly status: SavedConversationStatus;
   readonly title?: string;
+  /** History-only archived state; prompts and follow-ups are blocked. */
+  readonly archived?: boolean;
+  readonly archivedAt?: string;
   readonly messages: readonly SavedConversationMessage[];
   readonly history: {
     readonly hasMoreOlder: boolean;
@@ -188,6 +191,8 @@ export interface SavedConversationStore {
 
 interface SavedConversationConnectorResult {
   readonly title?: string;
+  readonly archived?: boolean;
+  readonly archivedAt?: string;
   readonly lastSequence: number;
   readonly messages: readonly (SessionMessage | GlobalChatSessionMessage)[];
   readonly hasMoreOlder?: boolean;
@@ -946,6 +951,25 @@ const applyDurableEvent = (
         runtime: { status: "recovery_required" },
         actions: actions({ canSend, send: "unavailable", canStop: false }),
       };
+    case "GlobalChatSessionArchivedV1":
+      return {
+        ...base,
+        archived: true,
+        archivedAt: event.timestamp,
+      };
+    case "GlobalChatSessionUnarchivedV1": {
+      const { archivedAt: _archivedAt, ...withoutArchivedAt } = base;
+      void _archivedAt;
+      return {
+        ...withoutArchivedAt,
+        archived: false,
+        actions: actions({
+          canSend,
+          send: "available",
+          canStop: base.actions.stop === "available",
+        }),
+      };
+    }
     default:
       return base;
   }
@@ -1103,7 +1127,15 @@ export const createSavedConversationStore = ({
 
   const publish = (next: SavedConversationProjection): void => {
     if (disposed) return;
-    snapshot = next;
+    // Archived conversations are history-only: sending and stopping are
+    // blocked until the conversation is unarchived.
+    const guarded = next.archived
+      ? {
+          ...next,
+          actions: actions({ canSend: false, send: "unavailable", canStop: false }),
+        }
+      : next;
+    snapshot = guarded;
     for (const listener of listeners) listener();
   };
 
@@ -1212,6 +1244,10 @@ export const createSavedConversationStore = ({
       session: { kind, id: currentSessionId },
       status: messages.length === 0 ? "empty" : "ready",
       ...(loaded.title === undefined ? {} : { title: loaded.title }),
+      ...(loaded.archived === undefined ? {} : { archived: loaded.archived }),
+      ...(loaded.archivedAt === undefined
+        ? {}
+        : { archivedAt: loaded.archivedAt }),
       messages,
       history: {
         hasMoreOlder: loaded.hasMoreOlder ?? false,
@@ -1676,6 +1712,12 @@ export const createGlobalChatSessionSavedConversationStore = ({
       ]);
       return {
         title: result.session.title,
+        ...(result.session.archived === undefined
+          ? {}
+          : { archived: result.session.archived }),
+        ...(result.session.archivedAt === undefined
+          ? {}
+          : { archivedAt: result.session.archivedAt }),
         lastSequence:
           followUpResult === undefined
             ? result.session.lastSequence

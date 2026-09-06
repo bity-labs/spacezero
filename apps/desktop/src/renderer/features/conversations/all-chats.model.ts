@@ -28,16 +28,21 @@ export function selectUnarchivedSessions(
 }
 
 /**
- * Selects the sessions shown in the All Chats Archived tab. Full archive
- * management is handled by the archive/unarchive slice; until Host summaries
- * expose archived time, sessions sort by last updated descending.
+ * Selects the sessions shown in the All Chats Archived tab: sessions sort by
+ * archived time descending, while rows still display last-updated time only.
  */
 export function selectArchivedSessions(
   sessions: readonly GlobalChatSessionSummary[],
 ): readonly GlobalChatSessionSummary[] {
   return sessions
     .filter((session) => session.archived)
-    .sort(byUpdatedAtDescending);
+    .sort((a, b) => {
+      const aArchivedAt = a.archivedAt ?? "";
+      const bArchivedAt = b.archivedAt ?? "";
+      if (aArchivedAt !== bArchivedAt)
+        return bArchivedAt.localeCompare(aArchivedAt);
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
 }
 
 /**

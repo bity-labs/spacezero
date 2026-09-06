@@ -39,6 +39,7 @@ const renderSidebar = (
         onSelectKnowledgeBase={() => undefined}
         onSelectAgentCapabilities={() => undefined}
         onSelectChat={() => undefined}
+        onArchiveChat={() => undefined}
         onToggleChats={() => undefined}
         onNewChat={() => undefined}
         onAllChats={() => undefined}
@@ -123,29 +124,27 @@ describe("WorkspaceSidebar chats section", () => {
     expect(activeRow!).toHaveAttribute("data-active");
   });
 
-  it("renders a disabled archive affordance on each chat row", () => {
+  it("archives an unarchived chat from its row archive affordance", () => {
+    const onArchiveChat = vi.fn();
+    const onSelectChat = vi.fn();
     renderSidebar({
       chats: [
         chat("chat-1", { title: "First chat" }),
         chat("chat-2", { title: "Second chat" }),
       ],
+      onArchiveChat,
+      onSelectChat,
     });
 
     const archiveButtons = screen.getAllByRole("button", { name: "Archive" });
     expect(archiveButtons).toHaveLength(2);
     for (const button of archiveButtons) {
-      expect(button).toBeDisabled();
+      expect(button).toBeEnabled();
     }
 
-    const onSelectChat = vi.fn();
-    cleanup();
-    renderSidebar({
-      chats: [chat("chat-1", { title: "First chat" })],
-      onSelectChat,
-    });
-    const archiveAction = screen.getAllByRole("button", { name: "Archive" })[0];
-    expect(archiveAction).toBeDefined();
-    fireEvent.click(archiveAction!);
+    fireEvent.click(archiveButtons[0]!);
+    expect(onArchiveChat).toHaveBeenCalledTimes(1);
+    expect(onArchiveChat).toHaveBeenCalledWith("chat-1");
     expect(onSelectChat).not.toHaveBeenCalled();
   });
 

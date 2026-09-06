@@ -1,5 +1,9 @@
 import type { ComponentProps } from "react";
-import { PlusIcon } from "@phosphor-icons/react";
+import {
+  Archive,
+  ArrowCounterClockwise,
+  PlusIcon,
+} from "@phosphor-icons/react";
 import { cn } from "#lib/utils";
 import { inkButton } from "./surfaces";
 
@@ -15,6 +19,8 @@ export interface ChatListRow {
   preview?: string;
   /** Last-updated label; always displayed, in both tabs. */
   updatedAt: string;
+  /** Whether the row is archived; selects the row action affordance. */
+  archived?: boolean;
 }
 
 export interface ChatListScreenProps {
@@ -30,6 +36,12 @@ export interface ChatListScreenProps {
   emptyDescription: string;
   emptyActionLabel: string;
   onSelectRow?: (id: string) => void;
+  /** Accessible label for the per-row archive action. */
+  archiveRowLabel?: string;
+  /** Accessible label for the per-row unarchive action. */
+  unarchiveRowLabel?: string;
+  onArchiveRow?: (id: string) => void | Promise<void>;
+  onUnarchiveRow?: (id: string) => void | Promise<void>;
   className?: string;
 }
 
@@ -46,6 +58,10 @@ const ChatListScreen = ({
   emptyDescription,
   emptyActionLabel,
   onSelectRow,
+  archiveRowLabel,
+  unarchiveRowLabel,
+  onArchiveRow,
+  onUnarchiveRow,
   className,
   ...props
 }: ChatListScreenProps & ComponentProps<"section">) => (
@@ -118,10 +134,13 @@ const ChatListScreen = ({
         ) : (
           <ul className="divide-y">
             {rows.map((row) => (
-              <li key={row.id} className="border-border/60">
+              <li
+                key={row.id}
+                className="border-border/60 flex items-stretch gap-1"
+              >
                 <button
                   type="button"
-                  className="hover:bg-muted/40 flex w-full flex-col gap-1 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="hover:bg-muted/40 focus-visible:ring-ring flex w-full min-w-0 flex-1 flex-col gap-1 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   onClick={onSelectRow ? () => onSelectRow(row.id) : undefined}
                 >
                   <span className="text-foreground truncate text-sm font-medium">
@@ -136,6 +155,34 @@ const ChatListScreen = ({
                     {row.updatedAt}
                   </span>
                 </button>
+                {row.archived ? (
+                  onUnarchiveRow ? (
+                    <button
+                      type="button"
+                      aria-label={unarchiveRowLabel ?? "Unarchive"}
+                      className="text-muted-foreground hover:text-foreground hover:bg-muted/40 focus-visible:ring-ring mx-2 my-2 flex shrink-0 items-center rounded-md px-2 focus-visible:outline-none focus-visible:ring-1"
+                      onClick={() => {
+                        void onUnarchiveRow(row.id);
+                      }}
+                    >
+                      <ArrowCounterClockwise
+                        className="size-4"
+                        aria-hidden="true"
+                      />
+                    </button>
+                  ) : null
+                ) : onArchiveRow ? (
+                  <button
+                    type="button"
+                    aria-label={archiveRowLabel ?? "Archive"}
+                    className="text-muted-foreground hover:text-foreground hover:bg-muted/40 focus-visible:ring-ring mx-2 my-2 flex shrink-0 items-center rounded-md px-2 focus-visible:outline-none focus-visible:ring-1"
+                    onClick={() => {
+                      void onArchiveRow(row.id);
+                    }}
+                  >
+                    <Archive className="size-4" aria-hidden="true" />
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
