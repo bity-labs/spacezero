@@ -7,7 +7,9 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createGlobalChatSessionSavedConversationStore,
   createSavedConversationStore,
+  type GlobalChatSessionClient,
   type SavedConversationStore,
 } from "@spacezero/client-runtime";
 import { SavedConversationThread } from "./saved-conversation-thread.js";
@@ -514,6 +516,105 @@ describe("SavedConversationThread", () => {
 
     expect(await screen.findByText("Build live streaming")).toBeInTheDocument();
     await waitFor(() => expect(submitted).toEqual(["Build live streaming"]));
+  });
+
+  it("loads an existing Global Chat and sends a later prompt to the same Session", async () => {
+    const submitted: { sessionId: string; prompt: string }[] = [];
+    const store = createGlobalChatSessionSavedConversationStore({
+      client: {
+        listMessages: async (sessionId: string) => {
+          expect(sessionId).toBe("global-session-existing");
+          return {
+            session: {
+              id: "global-session-existing",
+              title: "Existing global chat",
+              archived: false,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              lastSequence: 3,
+            },
+            messages: [
+              {
+                id: "global-history-user-1",
+                role: "user" as const,
+                text: "First chat question",
+                sequence: 2,
+                createdAt: timestamp,
+              },
+              {
+                id: "global-history-assistant-1",
+                role: "assistant" as const,
+                text: "First chat answer",
+                sequence: 3,
+                createdAt: timestamp,
+              },
+            ],
+          };
+        },
+        submitPrompt: async (
+          sessionId: string,
+          prompt: string,
+          commandId: string,
+        ) => {
+          submitted.push({ sessionId, prompt });
+          return {
+            session: {
+              id: sessionId,
+              title: "Existing global chat",
+              archived: false,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              lastSequence: 6,
+            },
+            userMessage: {
+              id: "global-history-user-2",
+              role: "user" as const,
+              text: prompt,
+              sequence: 5,
+              createdAt: timestamp,
+              commandId,
+            },
+            turn: {
+              id: "global-history-turn-2",
+              commandId,
+              state: "running" as const,
+              userMessageId: "global-history-user-2",
+              assistantMessageId: "global-history-assistant-2",
+              assistantMessageIds: ["global-history-assistant-2"],
+              draftMessages: [],
+              providerId: "anthropic",
+              modelId: "claude-sonnet-4-5",
+              thinkingLevel: "off" as const,
+              draftText: "",
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          };
+        },
+      } as unknown as GlobalChatSessionClient,
+      sessionId: "global-session-existing",
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(await screen.findByText("First chat question")).toBeInTheDocument();
+    expect(screen.getByText("First chat answer")).toBeInTheDocument();
+
+    const input = await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.change(input, {
+      target: { value: "Second chat question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("Second chat question")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(submitted).toEqual([
+        {
+          sessionId: "global-session-existing",
+          prompt: "Second chat question",
+        },
+      ]),
+    );
   });
 
   it("renders Host queued follow-ups and cancels eligible items through the store", async () => {
