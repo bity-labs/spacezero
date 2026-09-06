@@ -159,4 +159,83 @@ describe("Global Chat Session client", () => {
         "This Global Chat Session command ID was already used for different input.",
     });
   });
+
+  it("archives and unarchives a Global Chat Session through the generated Host API", async () => {
+    const archivedSession = {
+      ...createResult.session,
+      archived: true,
+      archivedAt: timestamp,
+    };
+    const requests: Request[] = [];
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        requests.push(request);
+        if (request.method === "POST")
+          return json({
+            session: request.url.endsWith("/archive")
+              ? archivedSession
+              : createResult.session,
+          });
+        return json({ session: createResult.session });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => commandId,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(client.archiveSession(sessionId)).resolves.toEqual({
+      session: archivedSession,
+    });
+    await expect(
+      client.unarchiveSession(sessionId),
+    ).resolves.toEqual({ session: createResult.session });
+
+    expect(
+      requests.map((request) => ({
+        url: request.url,
+        method: request.method,
+      })),
+    ).toEqual([
+      {
+        url: `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/archive`,
+        method: "POST",
+      },
+      {
+        url: `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/unarchive`,
+        method: "POST",
+      },
+    ]);
+    for (const request of requests) {
+      expect(request.headers.get("authorization")).toBe(
+        `Bearer ${descriptor.clientCapability}`,
+      );
+      await expect(request.json()).resolves.toEqual({ commandId });
+    }
+  });
+
+  it("propagates typed archived-state errors from unarchive", async () => {
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => commandId,
+      fetch: (async () =>
+        json(
+          {
+            code: "global_chat_session_turn_in_progress",
+            message:
+              "An agent turn is already in progress for this Global Chat Session.",
+          },
+          { status: 409 },
+        )) as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(client.unarchiveSession(sessionId)).rejects.toMatchObject({
+      code: "global_chat_session_turn_in_progress",
+      message:
+        "An agent turn is already in progress for this Global Chat Session.",
+    });
+  });
 });
