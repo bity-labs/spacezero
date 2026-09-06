@@ -1,13 +1,22 @@
 import {
-  ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
+  useAui,
+  useAuiState,
   type ThreadAssistantMessagePart,
   type ThreadMessage,
   type ThreadUserMessagePart,
 } from "@assistant-ui/react";
 import type { ReactElement, ReactNode } from "react";
 
+import {
+  Composer,
+  ComposerActions,
+  ComposerBar,
+  ComposerInput,
+  ComposerSend,
+  ComposerToolbar,
+} from "./assistant-ui/elements/composer";
 import { cn } from "#lib/utils";
 
 export type ThreadViewState =
@@ -373,31 +382,59 @@ const ThreadComposer = ({
   readonly labels: Required<ThreadLabels>;
   readonly isRunning: boolean;
   readonly onStop?: () => void | Promise<void>;
-}): ReactElement => (
-  <ComposerPrimitive.Root className="border-t border-border p-4">
-    <div className="flex items-end gap-2 rounded-lg border border-input bg-background p-2 shadow-sm">
-      <ComposerPrimitive.Input
-        aria-label={labels.composer}
-        placeholder={labels.composer}
-        className="min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-      />
-      <ComposerPrimitive.Send className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">
-        {labels.send}
-      </ComposerPrimitive.Send>
-      {isRunning && onStop ? (
-        <button
-          type="button"
-          className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-          onClick={() => {
-            void onStop();
-          }}
-        >
-          {labels.stop}
-        </button>
-      ) : null}
+}): ReactElement => {
+  const aui = useAui();
+  const threadIsRunning = useAuiState((state) => state.thread.isRunning);
+  const threadIsDisabled = useAuiState((state) => state.thread.isDisabled);
+  const composerText = useAuiState((state) => state.composer.text);
+  const composerCanSend = useAuiState((state) => state.composer.canSend);
+  const running = isRunning || threadIsRunning;
+  const canSend = composerCanSend && !threadIsDisabled;
+  return (
+    <div className="border-t border-border p-4">
+      <Composer className="w-full max-w-none">
+        <ComposerBar>
+          <ComposerInput
+            aria-label={labels.composer}
+            placeholder={labels.composer}
+            value={composerText}
+            disabled={threadIsDisabled}
+            onChange={(event) => {
+              aui.composer.setText(event.target.value);
+            }}
+            onSubmit={() => {
+              if (canSend) aui.composer.send();
+            }}
+          />
+          <ComposerToolbar className="justify-end">
+            <ComposerActions>
+              {running && onStop ? (
+                <button
+                  type="button"
+                  className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                  onClick={() => {
+                    void onStop();
+                  }}
+                >
+                  {labels.stop}
+                </button>
+              ) : null}
+              <ComposerSend
+                streaming={running}
+                idle={canSend}
+                disabled={!canSend}
+                aria-label={labels.send}
+                onClick={() => {
+                  if (canSend) aui.composer.send();
+                }}
+              />
+            </ComposerActions>
+          </ComposerToolbar>
+        </ComposerBar>
+      </Composer>
     </div>
-  </ComposerPrimitive.Root>
-);
+  );
+};
 
 export function Thread({
   state = "ready",
