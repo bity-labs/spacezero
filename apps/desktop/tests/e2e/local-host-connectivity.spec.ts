@@ -9,7 +9,6 @@ const builtMain = `${process.cwd()}/out/main/index.js`;
 const launchApp = async (): Promise<ElectronApplication> =>
   electron.launch({
     args: [builtMain],
-    env: { ...process.env, SPACEZERO_DEV_NODE_EXECUTABLE: process.execPath },
   });
 const closeApp = async (
   app: ElectronApplication | undefined,
@@ -31,7 +30,7 @@ test("real Desktop reaches real Local Host query and SSE, then reconnects after 
     app = await launchApp();
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
-    await expect(page.locator("main.app-root")).toBeVisible();
+    await expect(page.getByRole("main", { name: "Workspace" })).toBeVisible();
     await expect(page.locator("[data-host-status='connected']")).toBeVisible({
       timeout: 10000,
     });
@@ -46,7 +45,9 @@ test("real Desktop reaches real Local Host query and SSE, then reconnects after 
     expect(keys).toEqual([
       "getAppVersion",
       "getLocalHostConnection",
+      "openExternalUrl",
       "selectProjectFolder",
+      "settings",
     ]);
   } finally {
     await closeApp(app);

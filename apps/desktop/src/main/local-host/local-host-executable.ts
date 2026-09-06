@@ -14,10 +14,22 @@ export interface LocalHostExecutable {
   readonly cwd: string;
 }
 const repoRoot = resolve(process.cwd(), "../..");
+const resolveDevelopmentNodeExecutable = (): string | undefined => {
+  const configured =
+    process.env.SPACEZERO_DEV_NODE_EXECUTABLE ?? process.env.npm_node_execpath;
+  if (configured) return configured;
+  try {
+    return execFileSync("node", ["-p", "process.execPath"], {
+      encoding: "utf8",
+      timeout: 2000,
+    }).trim();
+  } catch {
+    return undefined;
+  }
+};
 export const resolveLocalHostExecutable = (): LocalHostExecutable => {
   if (app.isPackaged) throw new LocalHostUnavailableError();
-  const nodeExecutable =
-    process.env.SPACEZERO_DEV_NODE_EXECUTABLE ?? process.env.npm_node_execpath;
+  const nodeExecutable = resolveDevelopmentNodeExecutable();
   if (
     !nodeExecutable ||
     !resolve(nodeExecutable).startsWith("/") ||

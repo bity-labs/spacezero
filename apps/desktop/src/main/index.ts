@@ -28,6 +28,7 @@ const rendererPolicy = createTrustedRendererPolicy({
 });
 const isTrustedSender = (url: string): boolean =>
   rendererPolicy.canNavigateInWindow(url);
+let initialStartupComplete = false;
 
 /**
  * Native window background kept in sync with the shared UI theme tokens
@@ -87,9 +88,14 @@ app.whenReady().then(async () => {
     )
     .catch(() => undefined);
   const settings = await settingsStore.getSettings().catch(() => null);
-  nativeTheme.themeSource = toNativeThemeSource(settings?.themePreference ?? "system");
+  nativeTheme.themeSource = toNativeThemeSource(
+    settings?.themePreference ?? "system",
+  );
   registerRendererProtocol(rendererRoot, supervisor.endpoint());
   registerProjectFolderPickerIpc({ isTrustedSender });
+  initialStartupComplete = true;
   createWindow();
 });
-installAppLifecycle(app, createWindow, supervisor);
+installAppLifecycle(app, createWindow, supervisor, {
+  canCreateWindow: () => initialStartupComplete,
+});
