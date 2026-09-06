@@ -50,6 +50,7 @@ const admission = {
     turn: {
       id: turnId,
       assistantMessageId,
+      assistantMessageIds: [assistantMessageId],
       providerId: "anthropic",
       modelId: "claude-sonnet-4-5",
       thinkingLevel: "off" as const,
@@ -248,6 +249,13 @@ describe("chat turn persistence failure path", () => {
       turnId,
       text: "final answer",
       parts: finalParts,
+      messages: [
+        {
+          id: assistantMessageId,
+          text: "final answer",
+          parts: finalParts,
+        },
+      ],
     });
     expect(repository.failTurn).not.toHaveBeenCalled();
     expect(turnRunner.hasStorageFault(sessionId)).toBe(true);

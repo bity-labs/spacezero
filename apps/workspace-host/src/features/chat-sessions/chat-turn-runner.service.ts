@@ -21,7 +21,7 @@ export type ChatTurnFailureReason =
 export interface ChatTurnView {
   readonly id: string;
   readonly assistantMessageId: string;
-  readonly assistantMessageIds?: readonly string[];
+  readonly assistantMessageIds: readonly string[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel:
@@ -62,7 +62,7 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly AgentTurnContentPart[];
-    readonly messages?: readonly (AgentTurnAssistantMessage & {
+    readonly messages: readonly (AgentTurnAssistantMessage & {
       readonly id: string;
     })[];
   }) => Promise<void>;
@@ -99,7 +99,7 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly AgentTurnContentPart[];
-    readonly messages?: readonly (AgentTurnAssistantMessage & {
+    readonly messages: readonly (AgentTurnAssistantMessage & {
       readonly id: string;
     })[];
   }) => Promise<unknown>;
@@ -388,6 +388,14 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     const currentParts = (): readonly AgentTurnContentPart[] =>
       [...draftParts.values()].sort((left, right) => left.order - right.order);
 
+    const flatDraftPartsForMessage = (
+      messageIndex: number,
+    ): readonly AgentTurnContentPart[] =>
+      [...draftParts.entries()]
+        .filter(([key]) => key.startsWith(`${messageIndex}:`))
+        .map(([, part]) => part)
+        .sort((left, right) => left.order - right.order);
+
     const currentMessageDrafts = (): readonly (AgentTurnAssistantMessage & {
       readonly id: string;
     })[] =>
@@ -426,7 +434,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               turnId: input.admission.turnId,
               text,
               parts,
-              ...(messages.length === 0 ? {} : { messages }),
+              messages,
             }),
           );
           checkpointedContentLength = capturedLength;
@@ -702,17 +710,29 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           operationId,
           assistantText: completed.text,
         });
-        const completedMessages = completed.messages?.map((message, index) => {
+        const completedMessages = (
+          completed.messages ?? [
+            {
+              text: completed.text,
+              ...(completed.parts === undefined
+                ? {}
+                : { parts: completed.parts }),
+            },
+          ]
+        ).map((message, index) => {
           const draft = draftMessages.get(index);
-          const parts = mergeParts(
-            draft === undefined
-              ? []
-              : [...draft.parts.values()].sort(
-                  (left, right) => left.order - right.order,
-                ),
-            message.parts,
-            message.text,
-          );
+          // Durable tool activity is captured on the flat draft map for the
+          // primary assistant message, so message 0 must merge those parts
+          // back in; per-message drafts alone would drop them.
+          const existingParts =
+            index === 0
+              ? flatDraftPartsForMessage(0)
+              : draft === undefined
+                ? []
+                : [...draft.parts.values()].sort(
+                    (left, right) => left.order - right.order,
+                  );
+          const parts = mergeParts(existingParts, message.parts, message.text);
           return {
             id: messageIdForIndex(index),
             text: message.text,
@@ -731,9 +751,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
             turnId: input.admission.turnId,
             text: completed.text,
             parts: finalParts,
-            ...(completedMessages === undefined
-              ? {}
-              : { messages: completedMessages }),
+            messages: completedMessages,
           }),
         );
         stream.wakeEvents(input.sessionId);

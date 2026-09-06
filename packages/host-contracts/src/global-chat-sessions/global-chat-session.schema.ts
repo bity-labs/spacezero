@@ -123,7 +123,7 @@ export interface GlobalChatSessionMessage {
 export interface GlobalChatSessionDraftMessage {
   readonly id: GlobalChatSessionMessageId;
   readonly text: string;
-  readonly parts?: readonly GlobalChatSessionMessagePart[];
+  readonly parts: readonly GlobalChatSessionMessagePart[];
 }
 
 export interface GlobalChatSessionTurn {
@@ -132,7 +132,7 @@ export interface GlobalChatSessionTurn {
   readonly state: GlobalChatSessionTurnState;
   readonly userMessageId: GlobalChatSessionMessageId;
   readonly assistantMessageId: GlobalChatSessionMessageId;
-  readonly assistantMessageIds?: readonly GlobalChatSessionMessageId[];
+  readonly assistantMessageIds: readonly GlobalChatSessionMessageId[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel: AgentThinkingLevel;
@@ -460,7 +460,7 @@ export const GlobalChatSessionMessageSchema = Schema.Struct({
 export const GlobalChatSessionDraftMessageSchema = Schema.Struct({
   id: GlobalChatSessionMessageIdSchema,
   text: GlobalChatSessionMessageDraftTextSchema,
-  parts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
+  parts: Schema.Array(GlobalChatSessionMessagePartSchema),
 });
 export const GlobalChatSessionTurnSchema = Schema.Struct({
   id: GlobalChatSessionTurnIdSchema,
@@ -468,9 +468,7 @@ export const GlobalChatSessionTurnSchema = Schema.Struct({
   state: GlobalChatSessionTurnStateSchema,
   userMessageId: GlobalChatSessionMessageIdSchema,
   assistantMessageId: GlobalChatSessionMessageIdSchema,
-  assistantMessageIds: Schema.optionalKey(
-    Schema.Array(GlobalChatSessionMessageIdSchema),
-  ),
+  assistantMessageIds: Schema.Array(GlobalChatSessionMessageIdSchema),
   providerId: Schema.String.check(
     Schema.isMinLength(1),
     Schema.isMaxLength(128),
@@ -737,7 +735,7 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     turnId: GlobalChatSessionTurnIdSchema,
     messageId: GlobalChatSessionMessageIdSchema,
     text: GlobalChatSessionMessageDraftTextSchema,
-    parts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
+    parts: Schema.Array(GlobalChatSessionMessagePartSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -747,7 +745,7 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     turnId: GlobalChatSessionTurnIdSchema,
     messageId: GlobalChatSessionMessageIdSchema,
     text: CompletedGlobalChatSessionMessageTextSchema,
-    parts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
+    parts: Schema.Array(GlobalChatSessionMessagePartSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
