@@ -101,6 +101,26 @@ describe("Global Chat Session schemas", () => {
     expect(parsed).not.toHaveProperty("worktreePath");
   });
 
+  it("models durable archive state and archive time on Global Chat Session summaries", () => {
+    expect(parseSync(GlobalChatSessionSummarySchema)(session)).toEqual(session);
+    const archived = parseSync(GlobalChatSessionSummarySchema)({
+      ...session,
+      archived: true,
+      archivedAt: "2026-01-02T03:04:05.000Z",
+    });
+    expect(archived).toEqual({
+      ...session,
+      archived: true,
+      archivedAt: "2026-01-02T03:04:05.000Z",
+    });
+    expect(() =>
+      parseSync(GlobalChatSessionSummarySchema)({
+        ...session,
+        archivedAt: "not-a-timestamp",
+      }),
+    ).toThrow();
+  });
+
   it("derives the initial title from the trimmed first line with deterministic 60-character truncation", () => {
     expect(
       deriveGlobalChatSessionInitialTitle("  First line  \nsecond line"),
@@ -236,6 +256,35 @@ describe("Global Chat Session schemas", () => {
         timestamp: "2026-01-01T00:01:01.000Z",
       }),
     ).toMatchObject({ type: "GlobalChatSessionFollowUpConsumedV1", turnId });
+  });
+
+  it("models durable archive and unarchive lifecycle events", () => {
+    expect(
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionArchivedV1",
+        version: 1,
+        sessionId: session.id,
+        commandId: uuid,
+        timestamp: "2026-01-02T03:04:05.000Z",
+      }),
+    ).toMatchObject({ type: "GlobalChatSessionArchivedV1" });
+    expect(
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionUnarchivedV1",
+        version: 1,
+        sessionId: session.id,
+        commandId: uuid,
+        timestamp: "2026-01-02T03:04:06.000Z",
+      }),
+    ).toMatchObject({ type: "GlobalChatSessionUnarchivedV1" });
+    expect(() =>
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionArchivedV1",
+        version: 1,
+        sessionId: session.id,
+        timestamp: "2026-01-02T03:04:05.000Z",
+      }),
+    ).toThrow();
   });
 
   it("accepts reasoning-only in-progress checkpoints", () => {

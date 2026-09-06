@@ -7,6 +7,8 @@ import {
 import { HostAuthorizationErrorSchemas } from "../authentication/host-authorization.schema.js";
 import { GlobalChatSessionErrorSchemas } from "./global-chat-session-errors.schema.js";
 import {
+  ArchiveGlobalChatSessionRequestSchema,
+  ArchiveGlobalChatSessionResultSchema,
   CancelGlobalChatSessionFollowUpResultSchema,
   CreateGlobalChatSessionWithFirstPromptRequestSchema,
   CreateGlobalChatSessionWithFirstPromptResultSchema,
@@ -24,6 +26,8 @@ import {
   ListGlobalChatSessionsResultSchema,
   SubmitGlobalChatSessionPromptRequestSchema,
   SubmitGlobalChatSessionPromptResultSchema,
+  UnarchiveGlobalChatSessionRequestSchema,
+  UnarchiveGlobalChatSessionResultSchema,
   UpdateGlobalChatSessionRuntimeRequestSchema,
   UpdateGlobalChatSessionRuntimeResultSchema,
 } from "./global-chat-session.schema.js";
@@ -174,6 +178,38 @@ export const GlobalChatSessionApiGroup = HttpApiGroup.make("globalChatSessions")
         headers: GlobalChatSessionAuthorizationHeaderSchema,
         payload: UpdateGlobalChatSessionRuntimeRequestSchema,
         success: UpdateGlobalChatSessionRuntimeResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...GlobalChatSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "archiveGlobalChatSession",
+      "/global-chat-sessions/:sessionId/archive",
+      {
+        params: GlobalChatSessionPathParamsSchema,
+        headers: GlobalChatSessionAuthorizationHeaderSchema,
+        payload: ArchiveGlobalChatSessionRequestSchema,
+        success: ArchiveGlobalChatSessionResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...GlobalChatSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "unarchiveGlobalChatSession",
+      "/global-chat-sessions/:sessionId/unarchive",
+      {
+        params: GlobalChatSessionPathParamsSchema,
+        headers: GlobalChatSessionAuthorizationHeaderSchema,
+        payload: UnarchiveGlobalChatSessionRequestSchema,
+        success: UnarchiveGlobalChatSessionResultSchema,
         error: [
           ...HostAuthorizationErrorSchemas,
           ...GlobalChatSessionErrorSchemas,

@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
 import type {
   GlobalChatSessionClient,
 } from "@spacezero/client-runtime";
@@ -9,6 +8,7 @@ import {
   ChatListScreen,
   type ChatListRow,
 } from "@spacezero/ui/components/assistant-ui/elements/chat-list";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -19,12 +19,16 @@ import {
   selectUnarchivedSessions,
   type AllChatsTabId,
 } from "./all-chats.model.js";
+import { refreshChatLists } from "./chat-list-refresh.js";
 
 export interface AllChatsScreenProps {
   /** Client Runtime Global Chat Session client; React stays Effect-free. */
   client: Pick<
     GlobalChatSessionClient,
-    "listGlobalChatSessions" | "listMessages"
+    | "listGlobalChatSessions"
+    | "listMessages"
+    | "archiveSession"
+    | "unarchiveSession"
   >;
   onNewChat: () => void;
   onSelectSession: (sessionId: string) => void;
@@ -41,6 +45,7 @@ const chatListRows = (
     return {
       id: session.id,
       title: session.title,
+      archived: session.archived,
       ...(preview === undefined ? {} : { preview }),
       updatedAt: formatChatUpdatedAt(session.updatedAt),
     };
@@ -65,6 +70,7 @@ export function AllChatsScreen({
     new Map(),
   );
   const [activeTabId, setActiveTabId] = useState<AllChatsTabId>("unarchived");
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +97,25 @@ export function AllChatsScreen({
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, refreshToken]);
+
+  const applySessionCommand = useCallback(
+    (
+      command: (
+        sessionId: string,
+      ) => Promise<{ readonly session: { readonly id: string } }>,
+      sessionId: string,
+    ) =>
+      void command
+        .call(client, sessionId)
+        .then(() => {
+          // Archived state moved; refresh this screen and the sidebar lists.
+          refreshChatLists();
+          setRefreshToken((token) => token + 1);
+        })
+        .catch(() => undefined),
+    [client],
+  );
 
   const activeTabSessions = useMemo(
     () =>
@@ -143,6 +167,14 @@ export function AllChatsScreen({
             setActiveTabId(tabId);
         }}
         rows={chatListRows(activeTabSessions, previews)}
+        archiveRowLabel={t("workspace.archive")}
+        unarchiveRowLabel={t("workspace.unarchive")}
+        onArchiveRow={(sessionId) =>
+          applySessionCommand(client.archiveSession, sessionId)
+        }
+        onUnarchiveRow={(sessionId) =>
+          applySessionCommand(client.unarchiveSession, sessionId)
+        }
         emptyTitle={
           activeTabId === "unarchived"
             ? t("conversations.noChatsTitle")

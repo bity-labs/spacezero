@@ -41,17 +41,59 @@ interface FakeClientOptions {
 const fakeClient = ({
   sessions,
   lastMessages = new Map(),
-}: FakeClientOptions): GlobalChatSessionClient => ({
-  listGlobalChatSessions: vi.fn(async () => sessions),
-  listMessages: vi.fn(async (sessionId: string, options?: { limit?: number }) => {
-    expect(options?.limit).toBe(1);
-    const message = lastMessages.get(sessionId);
-    return {
+}: FakeClientOptions): GlobalChatSessionClient =>
+  ({
+    listGlobalChatSessions: vi.fn(async () => sessions),
+    archiveSession: vi.fn(async (sessionId: string) => ({
+      session: summary({ id: sessionId, archived: true }),
+    })),
+    unarchiveSession: vi.fn(async (sessionId: string) => ({
       session: summary({ id: sessionId }),
-      messages: message ? [message] : [],
-    };
-  }),
-}) as unknown as GlobalChatSessionClient;
+    })),
+    listMessages: vi.fn(async (sessionId: string, options?: { limit?: number }) => {
+      expect(options?.limit).toBe(1);
+      const message = lastMessages.get(sessionId);
+      return {
+        session: summary({ id: sessionId }),
+        messages: message ? [message] : [],
+      };
+    }),
+  }) as unknown as GlobalChatSessionClient;
+
+  const listClient = (
+    provided: readonly GlobalChatSessionSummary[],
+  ): GlobalChatSessionClient => {
+    const sessions = provided.map((session) => ({ ...session }));
+    return ({
+      listGlobalChatSessions: vi.fn(async () => sessions.slice()),
+      archiveSession: vi.fn(async (sessionId: string) => {
+        const session = sessions.find(
+          (candidate) => candidate.id === sessionId,
+        );
+        if (session) {
+          session.archived = true;
+          session.archivedAt = "2026-01-03T00:00:00.000Z";
+        }
+        return { session };
+      }),
+      unarchiveSession: vi.fn(async (sessionId: string) => {
+        const session = sessions.find(
+          (candidate) => candidate.id === sessionId,
+        );
+        if (session) {
+          session.archived = false;
+          delete session.archivedAt;
+        }
+        return { session };
+      }),
+      listMessages: vi.fn(
+        async (sessionId: string, options?: { limit?: number }) => {
+          expect(options?.limit).toBe(1);
+          return { session: summary({ id: sessionId }), messages: [] };
+        },
+      ),
+    }) as unknown as GlobalChatSessionClient;
+  };
 
 const renderScreen = (
   client: GlobalChatSessionClient,
@@ -239,6 +281,99 @@ describe("AllChatsScreen", () => {
       .map((button) => button.textContent?.trim());
     expect(rowTexts[0]).toContain("Newer chat");
     expect(rowTexts[1]).toContain("Older chat");
+  });
+
+  it("archives an unarchived session from its row action and refreshes the tabs", async () => {
+    const list = {
+      sessions: [summary({ id: "s-1", title: "Active chat" })],
+    };
+    renderScreen(listClient(list.sessions));
+    expect(await screen.findByText("Active chat")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Archive" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Unarchive" }),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("unarchives an archived session from its row action and refreshes the tabs", async () => {
+    const list = {
+      sessions: [
+        summary({
+          id: "s-archived",
+          title: "Archived chat",
+          archived: true,
+          archivedAt: "2026-01-02T00:00:00.000Z",
+        }),
+      ],
+    };
+    renderScreen(listClient(list.sessions));
+    fireEvent.click(await screen.findByRole("tab", { name: "Archived" }));
+    expect(await screen.findByText("Archived chat")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Unarchive" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("tab", { name: "Archived" }),
+      ).toBeInTheDocument();
+    });
+    fireEvent.click(tab("Unarchived"));
+    expect(await screen.findByText("Archived chat")).toBeInTheDocument();
+  });
+
+  it("sorts Archived rows by archived time descending while displaying last-updated time only", async () => {
+    vi.useFakeTimers({
+      now: new Date("2026-01-10T12:00:00.000Z"),
+      shouldAdvanceTime: true,
+    });
+    renderScreen(
+      fakeClient({
+        sessions: [
+          summary({
+            id: "s-archived-older",
+            title: "Older archived chat",
+            archived: true,
+            updatedAt: "2026-01-09T00:00:00.000Z",
+            archivedAt: "2026-01-02T00:00:00.000Z",
+          }),
+          summary({ id: "s-active", title: "Active chat" }),
+          summary({
+            id: "s-archived-newer",
+            title: "Newer archived chat",
+            archived: true,
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            archivedAt: "2026-01-08T00:00:00.000Z",
+          }),
+        ],
+      }),
+    );
+    await screen.findByText("Active chat");
+
+    fireEvent.click(tab("Archived"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Newer archived chat")).toBeInTheDocument();
+    });
+    const rowTexts = screen
+      .getAllByRole("button")
+      .filter((button) =>
+        ["Older archived chat", "Newer archived chat"].some((title) =>
+          button.textContent?.includes(title),
+        ),
+      )
+      .map((button) => button.textContent?.trim());
+    expect(rowTexts[0]).toContain("Newer archived chat");
+    expect(rowTexts[1]).toContain("Older archived chat");
+    // Rows show last-updated time only, never the archived time.
+    expect(rowTexts[0]).toContain("9 days ago");
+    expect(rowTexts[1]).toContain("yesterday");
   });
 
   it("opens the selected Global Chat Session when a row is clicked", async () => {

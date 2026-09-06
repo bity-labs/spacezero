@@ -35,6 +35,8 @@ export interface GlobalChatSessionSummary {
   readonly id: GlobalChatSessionId;
   readonly title: string;
   readonly archived: boolean;
+  /** Durable archive time; present only while the session is archived. */
+  readonly archivedAt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly lastSequence: number;
@@ -252,6 +254,22 @@ export interface UpdateGlobalChatSessionRuntimeResult {
   readonly runtime: GlobalChatSessionRuntimeConfiguration;
 }
 
+export interface ArchiveGlobalChatSessionRequest {
+  readonly commandId: GlobalChatSessionCommandId;
+}
+
+export interface ArchiveGlobalChatSessionResult {
+  readonly session: GlobalChatSessionSummary;
+}
+
+export interface UnarchiveGlobalChatSessionRequest {
+  readonly commandId: GlobalChatSessionCommandId;
+}
+
+export interface UnarchiveGlobalChatSessionResult {
+  readonly session: GlobalChatSessionSummary;
+}
+
 export interface InterruptGlobalChatSessionTurnRequest {
   readonly commandId: GlobalChatSessionCommandId;
 }
@@ -364,6 +382,7 @@ export const GlobalChatSessionSummarySchema = Schema.Struct({
   id: GlobalChatSessionIdSchema,
   title: GlobalChatSessionTitleSchema,
   archived: Schema.Boolean,
+  archivedAt: Schema.optionalKey(DateTimeUtcStringSchema),
   createdAt: DateTimeUtcStringSchema,
   updatedAt: DateTimeUtcStringSchema,
   lastSequence: Schema.Number.check(
@@ -615,6 +634,18 @@ export const UpdateGlobalChatSessionRuntimeResultSchema = Schema.Struct({
   session: GlobalChatSessionSummarySchema,
   runtime: GlobalChatSessionRuntimeConfigurationSchema,
 });
+export const ArchiveGlobalChatSessionRequestSchema = Schema.Struct({
+  commandId: GlobalChatSessionCommandIdSchema,
+});
+export const ArchiveGlobalChatSessionResultSchema = Schema.Struct({
+  session: GlobalChatSessionSummarySchema,
+});
+export const UnarchiveGlobalChatSessionRequestSchema = Schema.Struct({
+  commandId: GlobalChatSessionCommandIdSchema,
+});
+export const UnarchiveGlobalChatSessionResultSchema = Schema.Struct({
+  session: GlobalChatSessionSummarySchema,
+});
 export const InterruptGlobalChatSessionTurnRequestSchema = Schema.Struct({
   commandId: GlobalChatSessionCommandIdSchema,
 });
@@ -654,6 +685,20 @@ export const GlobalChatSessionEventSchema = Schema.Union([
       Schema.isInt(),
       Schema.isGreaterThanOrEqualTo(1),
     ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionArchivedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionUnarchivedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({

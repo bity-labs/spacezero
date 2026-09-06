@@ -10,6 +10,7 @@ import {
   parseGlobalChatSessionEventEnvelope,
   parseGlobalChatSessionLiveEventEnvelope,
   parseHostConnectionDescriptor,
+  type ArchiveGlobalChatSessionResult,
   type CancelGlobalChatSessionFollowUpResult,
   type CreateGlobalChatSessionWithFirstPromptResult,
   type EnqueueGlobalChatSessionFollowUpResult,
@@ -24,6 +25,7 @@ import {
   type ListGlobalChatSessionMessagesQuery,
   type ListGlobalChatSessionMessagesResult,
   type SubmitGlobalChatSessionPromptResult,
+  type UnarchiveGlobalChatSessionResult,
   type UpdateGlobalChatSessionRuntimeResult,
 } from "@spacezero/host-contracts";
 
@@ -52,6 +54,14 @@ export interface GlobalChatSessionClient {
     sessionId: string,
     followUpId: string,
   ) => Promise<CancelGlobalChatSessionFollowUpResult>;
+  readonly archiveSession: (
+    sessionId: string,
+    commandId?: GlobalChatSessionCommandId,
+  ) => Promise<ArchiveGlobalChatSessionResult>;
+  readonly unarchiveSession: (
+    sessionId: string,
+    commandId?: GlobalChatSessionCommandId,
+  ) => Promise<UnarchiveGlobalChatSessionResult>;
   readonly getRuntime: (
     sessionId: string,
   ) => Promise<GetGlobalChatSessionRuntimeResult>;
@@ -137,6 +147,16 @@ interface GeneratedGlobalChatSessionApiClient {
         readonly sessionId: string;
         readonly followUpId: string;
       };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly archiveGlobalChatSession: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+      readonly payload: { readonly commandId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly unarchiveGlobalChatSession: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+      readonly payload: { readonly commandId: string };
     }) => Effect.Effect<unknown, unknown, never>;
     readonly listGlobalChatSessionMessages: (input: {
       readonly headers: { readonly authorization: string };
@@ -385,6 +405,32 @@ export const createGlobalChatSessionClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as CancelGlobalChatSessionFollowUpResult;
+    },
+    archiveSession: async (sessionId, commandId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.globalChatSessions.archiveGlobalChatSession({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+          payload: { commandId: commandId ?? createCommandId() },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as ArchiveGlobalChatSessionResult;
+    },
+    unarchiveSession: async (sessionId, commandId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.globalChatSessions.unarchiveGlobalChatSession({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+          payload: { commandId: commandId ?? createCommandId() },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as UnarchiveGlobalChatSessionResult;
     },
     getRuntime: async (sessionId) => {
       const current = await descriptor();
