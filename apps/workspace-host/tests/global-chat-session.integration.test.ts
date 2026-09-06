@@ -1640,6 +1640,7 @@ describe("Global Chat Session Host protocol", () => {
             { once: true },
           );
         });
+        return { text: "" };
       },
     };
     const host = await start(
