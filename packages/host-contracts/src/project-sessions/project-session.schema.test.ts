@@ -110,15 +110,23 @@ describe("Project Session schemas", () => {
         createdAt: "2026-01-01T00:01:00.000Z",
       }),
     ).toThrow();
-    expect(() =>
+    expect(
       parseSync(SessionMessageSchema)({
         id: messageId,
         role: "assistant",
         text: "",
         sequence: 5,
         createdAt: "2026-01-01T00:01:00.000Z",
+        parts: [
+          {
+            id: `${messageId}:reasoning:1`,
+            type: "reasoning",
+            order: 1,
+            text: "Reasoning before text",
+          },
+        ],
       }),
-    ).toThrow();
+    ).toMatchObject({ role: "assistant", text: "" });
   });
 
   it("accepts safe tool-call parts with allowlisted public arguments and results", () => {

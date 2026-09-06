@@ -117,6 +117,62 @@ describe("SavedConversationThread", () => {
     expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
   });
 
+  it("renders multiple assistant messages from one Host turn as distinct transcript messages", async () => {
+    const store = loadedStore({
+      kind: "global",
+      sessionId: "global-session-1",
+      title: "Global chat",
+      messages: [
+        {
+          id: "user-message-1",
+          role: "user",
+          text: "Explain the plan",
+          sequence: 1,
+          createdAt: timestamp,
+        },
+        {
+          id: "assistant-message-1",
+          role: "assistant",
+          text: "First assistant boundary",
+          sequence: 2,
+          createdAt: timestamp,
+          parts: [
+            {
+              id: "assistant-message-1:text:1",
+              type: "text",
+              order: 1,
+              text: "First assistant boundary",
+              turnId: "turn-1",
+            },
+          ],
+        },
+        {
+          id: "assistant-message-2",
+          role: "assistant",
+          text: "Second assistant boundary",
+          sequence: 3,
+          createdAt: timestamp,
+          parts: [
+            {
+              id: "assistant-message-2:text:1",
+              type: "text",
+              order: 1,
+              text: "Second assistant boundary",
+              turnId: "turn-1",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(
+      await screen.findByText("First assistant boundary"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Second assistant boundary")).toBeInTheDocument();
+  });
+
   it("renders provider-exposed reasoning as expandable content separate from answer text", async () => {
     const store = loadedStore({
       kind: "project",
