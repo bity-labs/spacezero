@@ -4,16 +4,29 @@ import {
   createGlobalChatSessionSavedConversationStore,
   type SavedConversationProjection,
 } from "@spacezero/client-runtime";
-import { useMemo, useSyncExternalStore, type ReactElement } from "react";
+import { globalChatSessionTitleProblem, type GlobalChatSessionTitleProblem } from "@spacezero/host-contracts";
+import { ChatBreadcrumb } from "@spacezero/ui/components/assistant-ui/elements/chat-breadcrumb";
+import { useState, useMemo, useSyncExternalStore, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "@tanstack/react-router";
 
 import { refreshChatLists } from "./chat-list-refresh.js";
 import { SavedConversationThread } from "./saved-conversation-thread.js";
 
+const renameTitleProblemMessage: Record<
+  GlobalChatSessionTitleProblem,
+  string
+> = {
+  blank: "conversations.renameTitleBlank",
+  multi_line: "conversations.renameTitleSingleLine",
+  too_long: "conversations.renameTitleMaxLength",
+};
+
 /**
- * Active Global Chat Session surface: session header with archive/unarchive
- * controls, read-only archived state with an "Unarchive to continue" action,
- * and the shared saved conversation thread. Archiving keeps the chat open;
+ * Active Global Chat Session surface: session header with an inline rename
+ * control and archive/unarchive controls, read-only archived state with an
+ * "Unarchive to continue" action, and the shared saved conversation thread.
+ * Renaming is metadata management and stays available while archived;
  * the Host-owned archive state blocks new prompts and follow-ups.
  */
 export function GlobalChatSessionSurface({
@@ -22,6 +35,7 @@ export function GlobalChatSessionSurface({
   readonly sessionId: string;
 }): ReactElement {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { client, store } = useMemo(() => {
     const surfaceClient = createGlobalChatSessionClient({
       getConnectionDescriptor: window.spacezero.getLocalHostConnection,
@@ -39,8 +53,12 @@ export function GlobalChatSessionSurface({
     store.getSnapshot,
     store.getSnapshot,
   );
+  const [renameError, setRenameError] = useState<string | undefined>(
+    undefined,
+  );
   const archived = projection.archived === true;
   const applying = projection.status === "loading";
+  const title = projection.title ?? sessionId;
 
   const applyArchivedCommand = (action: "archive" | "unarchive") => {
     const command =
@@ -50,6 +68,33 @@ export function GlobalChatSessionSurface({
     void command
       .then(() => refreshChatLists())
       .catch(() => undefined)
+      .finally(() => {
+        void store.load().catch(() => undefined);
+      });
+  };
+
+  const applyRename = (nextTitle: string) => {
+    setRenameError(undefined);
+    const problem = globalChatSessionTitleProblem(nextTitle);
+    if (problem !== undefined) {
+      setRenameError(t(renameTitleProblemMessage[problem.problem]));
+      return;
+    }
+    void client
+      .renameSession(sessionId, nextTitle)
+      .then(() => refreshChatLists())
+      .catch((error: unknown) =>
+        setRenameError(
+          error instanceof Error
+            ? error.message
+            : typeof error === "object" &&
+                error !== null &&
+                "message" in error &&
+                typeof (error as { message: unknown }).message === "string"
+              ? (error as { message: string }).message
+              : t("conversations.allChatsLoadError"),
+        ),
+      )
       .finally(() => {
         void store.load().catch(() => undefined);
       });
@@ -65,9 +110,27 @@ export function GlobalChatSessionSurface({
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {t("conversations.globalChatSession")}
           </p>
-          <h1 className="mt-1 truncate text-lg font-semibold tracking-tight">
-            {sessionId}
-          </h1>
+          <div className="mt-1">
+            <h1 className="sr-only">{title}</h1>
+            <ChatBreadcrumb
+              sectionLabel={t("workspace.chats")}
+              onSectionClick={() => {
+                void navigate({ to: "/global-chat-sessions" });
+              }}
+              chatTitle={title}
+              renameLabel={t("conversations.renameChat")}
+              onRename={applyRename}
+            />
+            {renameError ? (
+              <p
+                role="alert"
+                className="mt-1 text-sm text-destructive"
+                data-testid="global-chat-session-rename-error"
+              >
+                {renameError}
+              </p>
+            ) : null}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {archived ? (
