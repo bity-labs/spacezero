@@ -13,6 +13,8 @@ import type {
   ListGlobalChatSessionFollowUpsResult,
   ListGlobalChatSessionMessagesResult,
   ListGlobalChatSessionsResult,
+  RenameGlobalChatSessionRequest,
+  RenameGlobalChatSessionResult,
   SubmitGlobalChatSessionPromptResult,
   UnarchiveGlobalChatSessionResult,
   UpdateGlobalChatSessionRuntimeRequest,
@@ -65,6 +67,10 @@ export interface GlobalChatSessionService {
     sessionId: string,
     commandId: string,
   ) => Promise<UnarchiveGlobalChatSessionResult>;
+  readonly renameSession: (
+    sessionId: string,
+    input: RenameGlobalChatSessionRequest,
+  ) => Promise<RenameGlobalChatSessionResult>;
   readonly listMessages: (
     sessionId: string,
     options?: { readonly beforeSequence?: number; readonly limit?: number },
@@ -496,6 +502,14 @@ export const createGlobalChatSessionService = (options: {
           turnRunner.wakeEvents(sessionId);
           scheduleFollowUpDrain(sessionId);
           return result;
+        } catch (error) {
+          throw mapError(error);
+        }
+      }),
+    renameSession: (sessionId, input) =>
+      withSessionLock(sessionId, async () => {
+        try {
+          return await repository.renameSession(sessionId, input);
         } catch (error) {
           throw mapError(error);
         }

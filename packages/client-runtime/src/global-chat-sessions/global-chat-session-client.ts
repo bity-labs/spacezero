@@ -24,6 +24,7 @@ import {
   type ListGlobalChatSessionFollowUpsResult,
   type ListGlobalChatSessionMessagesQuery,
   type ListGlobalChatSessionMessagesResult,
+  type RenameGlobalChatSessionResult,
   type SubmitGlobalChatSessionPromptResult,
   type UnarchiveGlobalChatSessionResult,
   type UpdateGlobalChatSessionRuntimeResult,
@@ -62,6 +63,11 @@ export interface GlobalChatSessionClient {
     sessionId: string,
     commandId?: GlobalChatSessionCommandId,
   ) => Promise<UnarchiveGlobalChatSessionResult>;
+  readonly renameSession: (
+    sessionId: string,
+    title: string,
+    commandId?: GlobalChatSessionCommandId,
+  ) => Promise<RenameGlobalChatSessionResult>;
   readonly getRuntime: (
     sessionId: string,
   ) => Promise<GetGlobalChatSessionRuntimeResult>;
@@ -157,6 +163,14 @@ interface GeneratedGlobalChatSessionApiClient {
       readonly headers: { readonly authorization: string };
       readonly params: { readonly sessionId: string };
       readonly payload: { readonly commandId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly renameGlobalChatSession: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+      readonly payload: {
+        readonly commandId: string;
+        readonly title: string;
+      };
     }) => Effect.Effect<unknown, unknown, never>;
     readonly listGlobalChatSessionMessages: (input: {
       readonly headers: { readonly authorization: string };
@@ -431,6 +445,19 @@ export const createGlobalChatSessionClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as UnarchiveGlobalChatSessionResult;
+    },
+    renameSession: async (sessionId, title, commandId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.globalChatSessions.renameGlobalChatSession({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+          payload: { commandId: commandId ?? createCommandId(), title },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as RenameGlobalChatSessionResult;
     },
     getRuntime: async (sessionId) => {
       const current = await descriptor();

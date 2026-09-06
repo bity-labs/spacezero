@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import {
   deriveGlobalChatSessionInitialTitle,
+  globalChatSessionTitleProblem,
   type ArchiveGlobalChatSessionRequest,
   type ArchiveGlobalChatSessionResult,
   type CancelGlobalChatSessionFollowUpResult,
@@ -24,6 +25,8 @@ import {
   type ListGlobalChatSessionFollowUpsResult,
   type ListGlobalChatSessionMessagesResult,
   type ListGlobalChatSessionsResult,
+  type RenameGlobalChatSessionRequest,
+  type RenameGlobalChatSessionResult,
   type SubmitGlobalChatSessionPromptRequest,
   type SubmitGlobalChatSessionPromptResult,
   type UnarchiveGlobalChatSessionRequest,
@@ -212,6 +215,20 @@ const archiveStateFingerprint = (input: {
           ? "global_chat_session_archive"
           : "global_chat_session_unarchive",
         sessionId: input.sessionId,
+      }),
+    )
+    .digest("hex");
+
+const renameTitleFingerprint = (input: {
+  readonly sessionId: string;
+  readonly title: string;
+}): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        kind: "global_chat_session_rename",
+        sessionId: input.sessionId,
+        title: input.title,
       }),
     )
     .digest("hex");
@@ -892,6 +909,97 @@ const applyArchivedStateInTransaction = (input: {
     );
   });
 
+/**
+ * Validates a rename title without silent re-truncation and returns the
+ * trimmed title that will be persisted.
+ */
+const validatedRenameTitle = (title: string): string => {
+  const problem = globalChatSessionTitleProblem(title);
+  if (problem !== undefined)
+    throw new GlobalChatSessionServiceError(
+      "global_chat_session_title_invalid",
+    );
+  return title.trim();
+};
+
+/**
+ * Applies a rename as a durable Session event plus projection update.
+ * Renames are metadata management, so they stay available while archived.
+ * Follows the command receipt pattern: the same command ID with the same
+ * trimmed input replays the current session summary, and renaming to the
+ * current title with a fresh command ID is an idempotent no-op that still
+ * records a receipt. Titles are trimmed and validated without silent
+ * re-truncation; invalid titles fail with a typed public error.
+ */
+const applyRenamedTitleInTransaction = (input: {
+  readonly sessionId: string;
+  readonly commandId: string;
+  readonly title: string;
+}) =>
+  Effect.gen(function* () {
+    const title = validatedRenameTitle(input.title);
+    const sql = yield* SqlClient;
+    const fp = renameTitleFingerprint({ sessionId: input.sessionId, title });
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const receipt =
+          yield* sql<ReceiptRow>`SELECT * FROM chat_session_command_receipts WHERE command_id = ${input.commandId}`;
+        if (receipt[0]) {
+          if (receipt[0].request_fingerprint !== fp)
+            throw new GlobalChatSessionServiceError("command_id_conflict");
+          if (
+            receipt[0].status === "failed" ||
+            receipt[0].status === "recovery_required"
+          )
+            throw new GlobalChatSessionServiceError(
+              (receipt[0].terminal_error_code as never) ??
+                "global_chat_session_unavailable",
+            );
+          const rows = yield* getSession(sql, receipt[0].session_id);
+          if (!rows[0])
+            throw new GlobalChatSessionServiceError(
+              "global_chat_session_unavailable",
+            );
+          return { session: toSummary(rows[0]) };
+        }
+
+        const rows = yield* getSession(sql, input.sessionId);
+        if (!rows[0])
+          throw new GlobalChatSessionServiceError(
+            "global_chat_session_not_found",
+          );
+        const now = new Date().toISOString();
+        if (rows[0].title === title) {
+          yield* sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${input.sessionId}, 'succeeded', ${rows[0].last_sequence}, ${now}, ${now})`;
+          return { session: toSummary(rows[0]) };
+        }
+        const sequence = rows[0].last_sequence + 1;
+        yield* appendEvent({
+          sql,
+          sessionId: input.sessionId,
+          sequence,
+          payload: {
+            type: "GlobalChatSessionRenamedV1",
+            version: 1,
+            sessionId: input.sessionId,
+            commandId: input.commandId,
+            title,
+            timestamp: now,
+          },
+          createdAt: now,
+        });
+        yield* sql`UPDATE chat_sessions SET title = ${title}, updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+        yield* sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${input.sessionId}, 'succeeded', ${sequence}, ${now}, ${now})`;
+        const updated = yield* getSession(sql, input.sessionId);
+        if (!updated[0])
+          throw new GlobalChatSessionServiceError(
+            "global_chat_session_unavailable",
+          );
+        return { session: toSummary(updated[0]) };
+      }),
+    );
+  });
+
 export const createGlobalChatSessionRepository = (options: {
   readonly databasePath: string;
 }) => ({
@@ -1510,6 +1618,19 @@ export const createGlobalChatSessionRepository = (options: {
         sessionId,
         commandId: input.commandId,
         archived: false,
+      }),
+    ),
+
+  renameSession: async (
+    sessionId: string,
+    input: RenameGlobalChatSessionRequest,
+  ): Promise<RenameGlobalChatSessionResult> =>
+    runSql(
+      options.databasePath,
+      applyRenamedTitleInTransaction({
+        sessionId,
+        commandId: input.commandId,
+        title: input.title,
       }),
     ),
 

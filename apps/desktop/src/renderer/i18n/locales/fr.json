@@ -45,7 +45,11 @@
     "loadingChats": "Chargement des chats",
     "allChatsLoadError": "Impossible de charger les chats.",
     "archivedReadOnly": "Archivée. Cette conversation est en lecture seule jusqu'à son déarchivage.",
-    "unarchiveToContinue": "Désarchiver pour continuer"
+    "unarchiveToContinue": "Désarchiver pour continuer",
+    "renameChat": "Renommer le chat",
+    "renameTitleBlank": "Les titres de chat ne peuvent pas être vides.",
+    "renameTitleSingleLine": "Les titres de chat doivent tenir sur une seule ligne.",
+    "renameTitleMaxLength": "Les titres de chat doivent contenir au plus 60 caractères."
   },
   "settings": {
     "title": "Paramètres",

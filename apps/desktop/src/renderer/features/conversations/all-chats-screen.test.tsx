@@ -250,6 +250,10 @@ describe("AllChatsScreen", () => {
     expect(rows[0]!.textContent).toContain(
       "Here is a draft outline for the release notes.",
     );
+    // Rename is not available from All Chats rows.
+    expect(
+      screen.queryByRole("button", { name: "Rename chat" }),
+    ).not.toBeInTheDocument();
   });
 
   it("sorts Unarchived rows by last updated descending", async () => {

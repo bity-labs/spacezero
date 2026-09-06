@@ -9,7 +9,10 @@ import {
   GlobalChatSessionMessageSchema,
   GlobalChatSessionSummarySchema,
   GlobalChatSessionToolCallPartSchema,
+  RenameGlobalChatSessionRequestSchema,
+  RenameGlobalChatSessionResultSchema,
   deriveGlobalChatSessionInitialTitle,
+  globalChatSessionTitleProblem,
 } from "./global-chat-session.schema.js";
 
 const parseSync = Schema.decodeUnknownSync;
@@ -285,6 +288,58 @@ describe("Global Chat Session schemas", () => {
         timestamp: "2026-01-02T03:04:05.000Z",
       }),
     ).toThrow();
+  });
+
+  it("models rename commands, results, and durable rename events", () => {
+    expect(
+      parseSync(RenameGlobalChatSessionRequestSchema)({
+        commandId: uuid,
+        title: "  Renamed chat  ",
+      }),
+    ).toEqual({ commandId: uuid, title: "  Renamed chat  " });
+    expect(
+      parseSync(RenameGlobalChatSessionResultSchema)({ session }),
+    ).toEqual({ session });
+    expect(
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionRenamedV1",
+        version: 1,
+        sessionId: session.id,
+        commandId: uuid,
+        title: "Renamed chat",
+        timestamp: "2026-01-02T03:04:07.000Z",
+      }),
+    ).toMatchObject({ type: "GlobalChatSessionRenamedV1", title: "Renamed chat" });
+    expect(() =>
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionRenamedV1",
+        version: 1,
+        sessionId: session.id,
+        commandId: uuid,
+        title: "",
+        timestamp: "2026-01-02T03:04:07.000Z",
+      }),
+    ).toThrow();
+  });
+
+  it("validates rename titles as trimmed, single-line, at most 60 characters", () => {
+    expect(globalChatSessionTitleProblem("  Renamed chat  ")).toBeUndefined();
+    expect(globalChatSessionTitleProblem("  \n\t ")).toMatchObject({
+      problem: "blank",
+      trimmed: "",
+    });
+    expect(globalChatSessionTitleProblem("two\nlines")).toMatchObject({
+      problem: "multi_line",
+      trimmed: "two\nlines",
+    });
+    expect(globalChatSessionTitleProblem("x".repeat(60))).toBeUndefined();
+    expect(globalChatSessionTitleProblem("x".repeat(61))).toMatchObject({
+      problem: "too_long",
+    });
+    expect(globalChatSessionTitleProblem("a".repeat(59) + "\u00e9")).toBeUndefined();
+    expect(globalChatSessionTitleProblem("a".repeat(60) + "\u00e9")).toMatchObject({
+      problem: "too_long",
+    });
   });
 
   it("accepts reasoning-only in-progress checkpoints", () => {
