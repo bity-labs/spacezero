@@ -68,6 +68,139 @@ const observeSnapshots = (store: {
 };
 
 describe("saved conversation projection", () => {
+  it("loads an archived Global Chat Session read-only with send blocked, and unarchive events re-enable sending", async () => {
+    let deliverEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listMessages: vi.fn(async () => ({
+        session: {
+          ...globalSession,
+          archived: true,
+          archivedAt: timestamp,
+        },
+        messages,
+      })),
+      submitPrompt: vi.fn(async () => ({
+        session: globalSession,
+        turn: {
+          id: "turn-2",
+          commandId: "command-2",
+          state: "completed" as const,
+          userMessageId: "message-1",
+          assistantMessageId: "message-2",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "done",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        userMessage: messages[1],
+      })),
+      subscribeEvents: vi.fn(
+        (input: { onEvent: (event: unknown) => void }) => {
+          deliverEvent = input.onEvent;
+          return { cancel: vi.fn(), closed: Promise.resolve() };
+        },
+      ),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatSessionSavedConversationStore({
+      client,
+      sessionId: "global-session-1",
+    });
+    const { snapshots, unsubscribe } = observeSnapshots(store);
+
+    await store.load();
+
+    expect(store.getSnapshot()).toMatchObject({
+      archived: true,
+      archivedAt: timestamp,
+      actions: { send: "unavailable", stop: "unavailable" },
+    });
+    await expect(store.send("Blocked prompt")).rejects.toThrow(
+      "send unavailable",
+    );
+    expect(deliverEvent).toBeDefined();
+
+    // The Host archive/unarchive events drive live read-only transitions.
+    deliverEvent?.({
+      sequence: 9,
+      eventType: "GlobalChatSessionUnarchivedV1",
+      event: {
+        type: "GlobalChatSessionUnarchivedV1",
+        version: 1,
+        sessionId: "global-session-1",
+        commandId: "command-unarchive",
+        timestamp: "2026-01-02T00:00:00.000Z",
+      },
+    });
+    expect(store.getSnapshot()).toMatchObject({
+      archived: false,
+      actions: { send: "available" },
+    });
+    expect(snapshots.length).toBeGreaterThan(2);
+    unsubscribe();
+  });
+
+  it("archives a Global Chat Session from durable events and blocks sends", async () => {
+    let deliverEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listMessages: vi.fn(async () => ({
+        session: { ...globalSession, archived: false },
+        messages,
+      })),
+      submitPrompt: vi.fn(async () => ({
+        session: globalSession,
+        turn: {
+          id: "turn-1",
+          commandId: "command-1",
+          state: "completed" as const,
+          userMessageId: "message-1",
+          assistantMessageId: "message-2",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "done",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        userMessage: messages[1],
+      })),
+      subscribeEvents: vi.fn(
+        (input: { onEvent: (event: unknown) => void }) => {
+          deliverEvent = input.onEvent;
+          return { cancel: vi.fn(), closed: Promise.resolve() };
+        },
+      ),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatSessionSavedConversationStore({
+      client,
+      sessionId: "global-session-1",
+    });
+    await store.load();
+    expect(store.getSnapshot().actions).toMatchObject({ send: "available" });
+
+    deliverEvent?.({
+      sequence: 5,
+      eventType: "GlobalChatSessionArchivedV1",
+      event: {
+        type: "GlobalChatSessionArchivedV1",
+        version: 1,
+        sessionId: "global-session-1",
+        commandId: "command-archive",
+        timestamp: "2026-01-01T12:00:00.000Z",
+      },
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      archived: true,
+      archivedAt: "2026-01-01T12:00:00.000Z",
+      actions: { send: "unavailable", stop: "unavailable" },
+    });
+    await expect(store.send("Blocked prompt")).rejects.toThrow(
+      "send unavailable",
+    );
+    expect(client.submitPrompt).not.toHaveBeenCalled();
+  });
   it("loads Project Session saved messages through the Project Session client with Host-backed send available", async () => {
     const client = {
       listSessionMessages: vi.fn(async (sessionId: string) => {
