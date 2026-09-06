@@ -1972,6 +1972,92 @@ describe("saved conversation projection", () => {
     expect(store.getSnapshot().lastSequence).toBe(5);
   });
 
+  it.each(["project", "global"] as const)(
+    "appends ordered active draft messages with distinct IDs for %s reloads",
+    async (kind) => {
+      const store = createSavedConversationStore({
+        kind,
+        sessionId: `${kind}-session-1`,
+        load: async () => ({
+          title: kind === "project" ? "margaux" : "Global prompt",
+          lastSequence: 5,
+          messages: [
+            {
+              id: `${kind}-user-message-1`,
+              role: "user" as const,
+              text: "hello",
+              sequence: 3,
+              createdAt: timestamp,
+            },
+          ],
+          activeTurn: {
+            id: `${kind}-turn-1`,
+            commandId: "11111111-1111-4111-8111-111111111111",
+            state: "running" as const,
+            userMessageId: `${kind}-user-message-1`,
+            assistantMessageId: `${kind}-assistant-message-1`,
+            assistantMessageIds: [
+              `${kind}-assistant-message-1`,
+              `${kind}-assistant-message-2`,
+            ],
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "first draftsecond draft",
+            draftMessages: [
+              {
+                id: `${kind}-assistant-message-1`,
+                text: "first draft",
+                parts: [
+                  {
+                    id: `${kind}-assistant-message-1:text:1`,
+                    type: "text" as const,
+                    order: 1,
+                    text: "first draft",
+                    turnId: `${kind}-turn-1`,
+                  },
+                ],
+              },
+              {
+                id: `${kind}-assistant-message-2`,
+                text: "second draft",
+                parts: [
+                  {
+                    id: `${kind}-assistant-message-2:text:1`,
+                    type: "text" as const,
+                    order: 1,
+                    text: "second draft",
+                    turnId: `${kind}-turn-1`,
+                  },
+                ],
+              },
+            ],
+            createdAt: timestamp,
+            updatedAt: "2026-01-01T00:00:05.000Z",
+          },
+        }),
+        subscribeEvents: () => ({
+          cancel: vi.fn(),
+          closed: Promise.resolve(),
+        }),
+      });
+
+      await store.load();
+
+      const assistantMessages = store
+        .getSnapshot()
+        .messages.filter((message) => message.role === "assistant");
+      expect(assistantMessages.map((message) => message.id)).toEqual([
+        `${kind}-assistant-message-1`,
+        `${kind}-assistant-message-2`,
+      ]);
+      expect(assistantMessages.map((message) => message.text)).toEqual([
+        "first draft",
+        "second draft",
+      ]);
+    },
+  );
+
   it("creates a Global Chat Session only on first draft send without duplicating the prompt", async () => {
     const createWithFirstPrompt = vi.fn(
       async (prompt: string, commandId: string) => ({
