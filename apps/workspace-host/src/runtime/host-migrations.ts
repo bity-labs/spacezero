@@ -122,7 +122,7 @@ CREATE TABLE chat_session_messages (
   session_id TEXT NOT NULL,
   message_id TEXT NOT NULL UNIQUE,
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-  text TEXT NOT NULL CHECK (length(text) > 0),
+  text TEXT NOT NULL CHECK (role = 'assistant' OR length(text) > 0),
   sequence INTEGER NOT NULL CHECK (sequence > 0),
   turn_id TEXT,
   created_at TEXT NOT NULL,
@@ -243,9 +243,10 @@ export const addChatSessionReasoningPartsMigration = Effect.gen(function* () {
   yield* sql`ALTER TABLE chat_session_turns ADD COLUMN draft_parts_json TEXT CHECK (draft_parts_json IS NULL OR json_valid(draft_parts_json))`;
 });
 
-export const createGlobalChatSessionFollowUpsMigration = Effect.gen(function* () {
-  const sql = yield* SqlClient;
-  yield* sql`
+export const createGlobalChatSessionFollowUpsMigration = Effect.gen(
+  function* () {
+    const sql = yield* SqlClient;
+    yield* sql`
 CREATE TABLE global_chat_session_follow_ups (
   session_id TEXT NOT NULL,
   follow_up_id TEXT NOT NULL UNIQUE,
@@ -260,8 +261,8 @@ CREATE TABLE global_chat_session_follow_ups (
   FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
     ON UPDATE RESTRICT ON DELETE RESTRICT
 )`;
-  yield* sql`CREATE INDEX global_chat_session_follow_ups_queue ON global_chat_session_follow_ups(session_id, state, position)`;
-  yield* sql`
+    yield* sql`CREATE INDEX global_chat_session_follow_ups_queue ON global_chat_session_follow_ups(session_id, state, position)`;
+    yield* sql`
 CREATE TRIGGER global_chat_session_follow_ups_require_global_kind
 BEFORE INSERT ON global_chat_session_follow_ups
 FOR EACH ROW
@@ -269,7 +270,57 @@ WHEN (SELECT kind FROM chat_sessions WHERE session_id = NEW.session_id) <> 'glob
 BEGIN
   SELECT RAISE(ABORT, 'global_chat_follow_up_requires_global_chat_session');
 END`;
+  },
+);
+
+export const addTurnAssistantMessageIdsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`ALTER TABLE chat_session_turns ADD COLUMN assistant_message_ids_json TEXT CHECK (assistant_message_ids_json IS NULL OR json_valid(assistant_message_ids_json))`;
+  yield* sql`UPDATE chat_session_turns SET assistant_message_ids_json = json_array(assistant_message_id) WHERE assistant_message_ids_json IS NULL`;
 });
+
+export const addTurnDraftMessagesAndAllowEmptyAssistantTextMigration =
+  Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    yield* sql`ALTER TABLE chat_session_turns ADD COLUMN draft_messages_json TEXT CHECK (draft_messages_json IS NULL OR json_valid(draft_messages_json))`;
+    yield* sql`
+CREATE TABLE chat_session_messages_rebuilt (
+  session_id TEXT NOT NULL,
+  message_id TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  text TEXT NOT NULL CHECK (role = 'assistant' OR length(text) > 0),
+  sequence INTEGER NOT NULL CHECK (sequence > 0),
+  turn_id TEXT,
+  created_at TEXT NOT NULL,
+  content_parts_json TEXT CHECK (content_parts_json IS NULL OR json_valid(content_parts_json)),
+  PRIMARY KEY (session_id, sequence),
+  FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id) ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+    yield* sql`
+INSERT INTO chat_session_messages_rebuilt (
+  session_id,
+  message_id,
+  role,
+  text,
+  sequence,
+  turn_id,
+  created_at,
+  content_parts_json
+)
+SELECT
+  session_id,
+  message_id,
+  role,
+  text,
+  sequence,
+  turn_id,
+  created_at,
+  content_parts_json
+FROM chat_session_messages`;
+    yield* sql`DROP TABLE chat_session_messages`;
+    yield* sql`ALTER TABLE chat_session_messages_rebuilt RENAME TO chat_session_messages`;
+    yield* sql`CREATE INDEX chat_session_messages_list_order ON chat_session_messages(session_id, sequence)`;
+  });
 
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
@@ -303,6 +354,16 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     8,
     "create_global_chat_session_follow_ups",
     Effect.succeed(createGlobalChatSessionFollowUpsMigration),
+  ],
+  [
+    9,
+    "add_turn_assistant_message_ids",
+    Effect.succeed(addTurnAssistantMessageIdsMigration),
+  ],
+  [
+    10,
+    "add_turn_draft_messages_and_allow_empty_assistant_text",
+    Effect.succeed(addTurnDraftMessagesAndAllowEmptyAssistantTextMigration),
   ],
 ] as const);
 

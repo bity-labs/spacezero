@@ -136,6 +136,12 @@ export interface SessionMessage {
   readonly parts?: readonly SessionMessagePart[];
 }
 
+export interface SessionDraftMessage {
+  readonly id: SessionMessageId;
+  readonly text: string;
+  readonly parts?: readonly SessionMessagePart[];
+}
+
 export interface SubmitSessionPromptRequest {
   readonly commandId: ProjectSessionCommandId;
   readonly prompt: string;
@@ -191,11 +197,13 @@ export interface ProjectSessionTurn {
   readonly state: ProjectSessionTurnState;
   readonly userMessageId: SessionMessageId;
   readonly assistantMessageId: SessionMessageId;
+  readonly assistantMessageIds?: readonly SessionMessageId[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel: AgentThinkingLevel;
   readonly draftText: string;
   readonly draftParts?: readonly SessionMessagePart[];
+  readonly draftMessages?: readonly SessionDraftMessage[];
   readonly failureReason?: string;
   readonly failureCategory?: AgentTurnFailureCategory;
   readonly retryable?: boolean;
@@ -362,6 +370,7 @@ export const SessionPromptSchema = Schema.String.check(
 export const SessionMessageTextSchema = Schema.String.check(
   Schema.isMinLength(1),
 );
+export const CompletedSessionMessageTextSchema = Schema.String;
 export const SessionMessageDraftTextSchema = Schema.String;
 export const SessionMessageRoleSchema = Schema.Literals(["user", "assistant"]);
 export const SessionTextPartSchema = Schema.Struct({
@@ -435,7 +444,7 @@ export const SessionMessagePartSchema = Schema.Union([
 export const SessionMessageSchema = Schema.Struct({
   id: SessionMessageIdSchema,
   role: SessionMessageRoleSchema,
-  text: SessionMessageTextSchema,
+  text: CompletedSessionMessageTextSchema,
   sequence: Schema.Number.check(
     Schema.isInt(),
     Schema.isGreaterThanOrEqualTo(1),
@@ -443,6 +452,11 @@ export const SessionMessageSchema = Schema.Struct({
   createdAt: DateTimeUtcStringSchema,
   commandId: Schema.optionalKey(ProjectSessionCommandIdSchema),
   turnId: Schema.optionalKey(AgentTurnIdSchema),
+  parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
+});
+export const SessionDraftMessageSchema = Schema.Struct({
+  id: SessionMessageIdSchema,
+  text: SessionMessageDraftTextSchema,
   parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
 });
 export const SubmitSessionPromptRequestSchema = Schema.Struct({
@@ -491,6 +505,7 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   state: ProjectSessionTurnStateSchema,
   userMessageId: SessionMessageIdSchema,
   assistantMessageId: SessionMessageIdSchema,
+  assistantMessageIds: Schema.optionalKey(Schema.Array(SessionMessageIdSchema)),
   providerId: Schema.String.check(
     Schema.isMinLength(1),
     Schema.isMaxLength(128),
@@ -499,6 +514,7 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   thinkingLevel: AgentThinkingLevelSchema,
   draftText: Schema.String,
   draftParts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
+  draftMessages: Schema.optionalKey(Schema.Array(SessionDraftMessageSchema)),
   failureReason: Schema.optionalKey(Schema.String),
   failureCategory: Schema.optionalKey(AgentTurnFailureCategorySchema),
   retryable: Schema.optionalKey(Schema.Boolean),
@@ -795,7 +811,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
-    text: SessionMessageTextSchema,
+    text: CompletedSessionMessageTextSchema,
     parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
     timestamp: DateTimeUtcStringSchema,
   }),

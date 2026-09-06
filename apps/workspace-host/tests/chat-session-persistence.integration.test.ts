@@ -524,16 +524,12 @@ describe("shared chat session persistence", () => {
 
     await host.stop();
     const restartedPrompts: string[] = [];
-    const restarted = await start(
-      databasePath,
-      join(root, "SpaceZero"),
-      {
-        submitTurn: async (input) => {
-          restartedPrompts.push(input.prompt);
-          return { text: "unexpected replay" };
-        },
+    const restarted = await start(databasePath, join(root, "SpaceZero"), {
+      submitTurn: async (input) => {
+        restartedPrompts.push(input.prompt);
+        return { text: "unexpected replay" };
       },
-    );
+    });
     const restartedClient = descriptor(restarted);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(restartedPrompts).toEqual([]);
@@ -691,16 +687,12 @@ describe("shared chat session persistence", () => {
 
     await host.stop();
     const restartedPrompts: string[] = [];
-    const restarted = await start(
-      databasePath,
-      join(root, "SpaceZero"),
-      {
-        submitTurn: async (input) => {
-          restartedPrompts.push(input.prompt);
-          return { text: "unexpected replay" };
-        },
+    const restarted = await start(databasePath, join(root, "SpaceZero"), {
+      submitTurn: async (input) => {
+        restartedPrompts.push(input.prompt);
+        return { text: "unexpected replay" };
       },
-    );
+    });
     const restartedClient = descriptor(restarted);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(restartedPrompts).toEqual([]);
@@ -743,6 +735,503 @@ describe("shared chat session persistence", () => {
       code: "global_chat_session_turn_in_progress",
     });
   });
+
+  it.each(["project", "global"] as const)(
+    "preserves multiple assistant messages for %s sessions across live completion and restart",
+    async (kind) => {
+      const root = await temp();
+      const databasePath = join(root, "host.sqlite");
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const runner: ConversationRunner = {
+        submitTurn: async (input) => {
+          await released;
+          await input.onEvent?.({
+            type: "assistant_delta",
+            part: { type: "text", order: 1, text: "First assistant" },
+          });
+          await input.onEvent?.({
+            type: "assistant_delta",
+            part: { type: "text", order: 1, text: "Second assistant" },
+            messageIndex: 1,
+          });
+          return {
+            text: "First assistant\n\nSecond assistant",
+            messages: [
+              {
+                text: "First assistant",
+                parts: [{ type: "text", order: 1, text: "First assistant" }],
+              },
+              {
+                text: "Second assistant",
+                parts: [{ type: "text", order: 1, text: "Second assistant" }],
+              },
+            ],
+          };
+        },
+      };
+      const host = await start(databasePath, join(root, "SpaceZero"), runner);
+      const client = descriptor(host);
+      let sessionId: string;
+      let after: number;
+      if (kind === "project") {
+        const project = await registerProject(
+          host,
+          client.clientCapability,
+          await gitRepo(root),
+        );
+        const projectSession = await createProjectSession(
+          host,
+          client.clientCapability,
+          project.project.id,
+        );
+        sessionId = projectSession.session.id;
+        const submitted = await submitProjectPrompt(
+          host,
+          client.clientCapability,
+          sessionId,
+          "multi project prompt",
+        );
+        expect(submitted.response.status).toBe(200);
+        const before = await listProjectMessages(
+          host,
+          client.clientCapability,
+          sessionId,
+        );
+        after = (before.body as { session: { lastSequence: number } }).session
+          .lastSequence;
+      } else {
+        const created = await createGlobalChatSession(
+          host,
+          client.clientCapability,
+          "multi global prompt",
+        );
+        sessionId = created.session.id;
+        const before = await listGlobalChatMessages(
+          host,
+          client.clientCapability,
+          sessionId,
+        );
+        after = (before.body as { session: { lastSequence: number } }).session
+          .lastSequence;
+      }
+
+      const stream =
+        kind === "project"
+          ? await subscribeProjectEvents(
+              host,
+              client.clientCapability,
+              sessionId,
+              after,
+            )
+          : await subscribeGlobalChatEvents(
+              host,
+              client.clientCapability,
+              sessionId,
+              after,
+            );
+      expect(stream.status).toBe(200);
+      release();
+      const frames = await readSseFrames(stream, 4);
+      const liveDeltas = frames.filter((frame) => {
+        const eventType = (frame.data as { eventType?: string }).eventType;
+        return (
+          eventType === "AssistantTextDeltaV1" ||
+          eventType === "GlobalChatAssistantTextDeltaV1"
+        );
+      });
+      expect(
+        liveDeltas.map(
+          (frame) =>
+            (frame.data as { event: { messageId: string } }).event.messageId,
+        ),
+      ).toHaveLength(2);
+      expect(
+        new Set(
+          liveDeltas.map(
+            (frame) =>
+              (frame.data as { event: { messageId: string } }).event.messageId,
+          ),
+        ).size,
+      ).toBe(2);
+
+      await waitFor(async () => {
+        const listed =
+          kind === "project"
+            ? await listProjectMessages(
+                host,
+                client.clientCapability,
+                sessionId,
+              )
+            : await listGlobalChatMessages(
+                host,
+                client.clientCapability,
+                sessionId,
+              );
+        expect(listed.response.status).toBe(200);
+        const body = listed.body as {
+          messages: readonly { role: string; text: string; turnId?: string }[];
+          latestTurn: { assistantMessageIds: readonly string[] };
+        };
+        expect(body.messages.map((message) => message.text)).toEqual([
+          kind === "project" ? "multi project prompt" : "multi global prompt",
+          "First assistant",
+          "Second assistant",
+        ]);
+        expect(body.latestTurn.assistantMessageIds).toHaveLength(2);
+      });
+
+      await host.stop();
+      const restarted = await start(
+        databasePath,
+        join(root, "SpaceZero"),
+        runner,
+      );
+      const restartedClient = descriptor(restarted);
+      const reloaded =
+        kind === "project"
+          ? await listProjectMessages(
+              restarted,
+              restartedClient.clientCapability,
+              sessionId,
+            )
+          : await listGlobalChatMessages(
+              restarted,
+              restartedClient.clientCapability,
+              sessionId,
+            );
+      expect(
+        (
+          reloaded.body as { messages: readonly { text: string }[] }
+        ).messages.map((message) => message.text),
+      ).toEqual([
+        kind === "project" ? "multi project prompt" : "multi global prompt",
+        "First assistant",
+        "Second assistant",
+      ]);
+    },
+  );
+
+  it.each(["project", "global"] as const)(
+    "preserves multiple checkpointed assistant drafts for %s sessions before completion and after recovery reload",
+    async (kind) => {
+      const root = await temp();
+      const databasePath = join(root, "host.sqlite");
+      const firstDraft = `First draft ${"a".repeat(2_048)}`;
+      const secondDraft = `Second draft ${"b".repeat(2_048)}`;
+      const finalText = `${kind} final should fail`;
+      let release!: () => void;
+      let checkpointed!: () => void;
+      const releasePromise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const checkpointedPromise = new Promise<void>((resolve) => {
+        checkpointed = resolve;
+      });
+      const runner: ConversationRunner = {
+        submitTurn: async (input) => {
+          await input.onEvent?.({
+            type: "assistant_delta",
+            part: { type: "text", order: 1, text: firstDraft },
+          });
+          await input.onEvent?.({
+            type: "assistant_delta",
+            part: { type: "text", order: 1, text: secondDraft },
+            messageIndex: 1,
+          });
+          checkpointed();
+          await releasePromise;
+          return {
+            text: finalText,
+            messages: [
+              {
+                text: finalText,
+                parts: [{ type: "text", order: 1, text: finalText }],
+              },
+            ],
+          };
+        },
+      };
+      const host = await start(databasePath, join(root, "SpaceZero"), runner);
+      const client = descriptor(host);
+      let sessionId: string;
+      if (kind === "project") {
+        const project = await registerProject(
+          host,
+          client.clientCapability,
+          await gitRepo(root),
+        );
+        const projectSession = await createProjectSession(
+          host,
+          client.clientCapability,
+          project.project.id,
+        );
+        sessionId = projectSession.session.id;
+        const submitted = await submitProjectPrompt(
+          host,
+          client.clientCapability,
+          sessionId,
+          "checkpointed multi project prompt",
+        );
+        expect(submitted.response.status).toBe(200);
+      } else {
+        const created = await createGlobalChatSession(
+          host,
+          client.clientCapability,
+          "checkpointed multi global prompt",
+        );
+        sessionId = created.session.id;
+      }
+
+      await checkpointedPromise;
+      const listed =
+        kind === "project"
+          ? await listProjectMessages(host, client.clientCapability, sessionId)
+          : await listGlobalChatMessages(
+              host,
+              client.clientCapability,
+              sessionId,
+            );
+      expect(listed.response.status).toBe(200);
+      const activeTurn = (
+        listed.body as {
+          activeTurn: {
+            assistantMessageIds: readonly string[];
+            draftMessages: readonly { id: string; text: string }[];
+          };
+        }
+      ).activeTurn;
+      expect(activeTurn.assistantMessageIds).toHaveLength(2);
+      expect(activeTurn.draftMessages.map((message) => message.id)).toEqual(
+        activeTurn.assistantMessageIds,
+      );
+      expect(activeTurn.draftMessages.map((message) => message.text)).toEqual([
+        firstDraft,
+        secondDraft,
+      ]);
+
+      installAssistantMessageFailureTrigger(
+        databasePath,
+        `${kind}_final_checkpoint_failure`,
+        finalText,
+      );
+      release();
+      await waitFor(async () => {
+        const recovered =
+          kind === "project"
+            ? await listProjectMessages(
+                host,
+                client.clientCapability,
+                sessionId,
+              )
+            : await listGlobalChatMessages(
+                host,
+                client.clientCapability,
+                sessionId,
+              );
+        expect(recovered.response.status).toBe(200);
+        expect(recovered.body).toMatchObject({
+          activeTurn: { state: "recovery_required" },
+        });
+      });
+
+      await host.stop();
+      const restarted = await start(
+        databasePath,
+        join(root, "SpaceZero"),
+        runner,
+      );
+      const restartedClient = descriptor(restarted);
+      const reloaded =
+        kind === "project"
+          ? await listProjectMessages(
+              restarted,
+              restartedClient.clientCapability,
+              sessionId,
+            )
+          : await listGlobalChatMessages(
+              restarted,
+              restartedClient.clientCapability,
+              sessionId,
+            );
+      expect(reloaded.response.status).toBe(200);
+      const reloadedTurn = (
+        reloaded.body as {
+          activeTurn: {
+            state: string;
+            assistantMessageIds: readonly string[];
+            draftMessages: readonly { id: string; text: string }[];
+          };
+        }
+      ).activeTurn;
+      expect(reloadedTurn.state).toBe("recovery_required");
+      expect(reloadedTurn.draftMessages.map((message) => message.id)).toEqual(
+        reloadedTurn.assistantMessageIds,
+      );
+      expect(reloadedTurn.draftMessages.map((message) => message.text)).toEqual(
+        [firstDraft, secondDraft],
+      );
+    },
+  );
+
+  it.each(["project", "global"] as const)(
+    "persists non-text-only assistant message boundaries for %s sessions",
+    async (kind) => {
+      const root = await temp();
+      const databasePath = join(root, "host.sqlite");
+      const runner: ConversationRunner = {
+        submitTurn: async () => ({
+          text: "Text after non-text boundary",
+          messages: [
+            {
+              text: "",
+              parts: [
+                { type: "reasoning", order: 1, text: "Reasoning boundary" },
+                {
+                  type: "tool-call",
+                  order: 2,
+                  toolCallId: "tool-boundary-1",
+                  toolName: "workspace.inspect",
+                  status: "succeeded",
+                  result: {
+                    content: [{ type: "text", text: "Tool-only boundary" }],
+                  },
+                },
+              ],
+            },
+            {
+              text: "Text after non-text boundary",
+              parts: [
+                {
+                  type: "text",
+                  order: 1,
+                  text: "Text after non-text boundary",
+                },
+              ],
+            },
+          ],
+        }),
+      };
+      const host = await start(databasePath, join(root, "SpaceZero"), runner);
+      const client = descriptor(host);
+      let sessionId: string;
+      if (kind === "project") {
+        const project = await registerProject(
+          host,
+          client.clientCapability,
+          await gitRepo(root),
+        );
+        const projectSession = await createProjectSession(
+          host,
+          client.clientCapability,
+          project.project.id,
+        );
+        sessionId = projectSession.session.id;
+        const submitted = await submitProjectPrompt(
+          host,
+          client.clientCapability,
+          sessionId,
+          "non-text project boundary",
+        );
+        expect(submitted.response.status).toBe(200);
+      } else {
+        const created = await createGlobalChatSession(
+          host,
+          client.clientCapability,
+          "non-text global boundary",
+        );
+        sessionId = created.session.id;
+      }
+
+      await waitFor(async () => {
+        const listed =
+          kind === "project"
+            ? await listProjectMessages(
+                host,
+                client.clientCapability,
+                sessionId,
+              )
+            : await listGlobalChatMessages(
+                host,
+                client.clientCapability,
+                sessionId,
+              );
+        expect(listed.response.status).toBe(200);
+        const body = listed.body as {
+          messages: readonly {
+            role: string;
+            text: string;
+            parts?: readonly {
+              type: string;
+              text?: string;
+              toolName?: string;
+            }[];
+          }[];
+        };
+        const assistantMessages = body.messages.filter(
+          (message) => message.role === "assistant",
+        );
+        expect(assistantMessages).toHaveLength(2);
+        expect(assistantMessages[0]).toMatchObject({
+          text: "",
+          parts: [
+            { type: "reasoning", text: "Reasoning boundary" },
+            { type: "tool-call", toolName: "workspace.inspect" },
+          ],
+        });
+        expect(assistantMessages[1]).toMatchObject({
+          text: "Text after non-text boundary",
+          parts: [{ type: "text", text: "Text after non-text boundary" }],
+        });
+      });
+
+      await host.stop();
+      const restarted = await start(
+        databasePath,
+        join(root, "SpaceZero"),
+        runner,
+      );
+      const restartedClient = descriptor(restarted);
+      const reloaded =
+        kind === "project"
+          ? await listProjectMessages(
+              restarted,
+              restartedClient.clientCapability,
+              sessionId,
+            )
+          : await listGlobalChatMessages(
+              restarted,
+              restartedClient.clientCapability,
+              sessionId,
+            );
+      expect(reloaded.response.status).toBe(200);
+      const reloadedAssistantMessages = (
+        reloaded.body as {
+          messages: readonly {
+            role: string;
+            text: string;
+            parts?: readonly {
+              type: string;
+              text?: string;
+              toolName?: string;
+            }[];
+          }[];
+        }
+      ).messages.filter((message) => message.role === "assistant");
+      expect(reloadedAssistantMessages.map((message) => message.text)).toEqual([
+        "",
+        "Text after non-text boundary",
+      ]);
+      expect(reloadedAssistantMessages[0]?.parts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "reasoning" }),
+          expect.objectContaining({ type: "tool-call" }),
+        ]),
+      );
+    },
+  );
 
   it("stores Project Sessions and Global Chat Sessions in the shared physical chat tables", async () => {
     const root = await temp();
@@ -823,8 +1312,12 @@ describe("shared chat session persistence", () => {
       "chat_session_pi_contexts",
       "chat_session_command_receipts",
     ]) {
-      expect(countForSession(databasePath, table, projectSession.session.id)).toBeGreaterThan(0);
-      expect(countForSession(databasePath, table, globalSession.session.id)).toBeGreaterThan(0);
+      expect(
+        countForSession(databasePath, table, projectSession.session.id),
+      ).toBeGreaterThan(0);
+      expect(
+        countForSession(databasePath, table, globalSession.session.id),
+      ).toBeGreaterThan(0);
     }
 
     const eventTypes = readRows<{ session_id: string; event_type: string }>(

@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import {
   AgentTurnError,
   type AgentRuntimeEvent,
   type AgentToolConfiguration,
+  type AgentTurnAssistantMessage,
   type AgentTurnContentPart,
   type AgentTurnMessage,
   type AgentTurnResources,
@@ -19,6 +21,7 @@ export type ChatTurnFailureReason =
 export interface ChatTurnView {
   readonly id: string;
   readonly assistantMessageId: string;
+  readonly assistantMessageIds?: readonly string[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel:
@@ -59,6 +62,9 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly AgentTurnContentPart[];
+    readonly messages?: readonly (AgentTurnAssistantMessage & {
+      readonly id: string;
+    })[];
   }) => Promise<void>;
   readonly recordToolStarted: (input: {
     readonly sessionId: string;
@@ -93,6 +99,9 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly AgentTurnContentPart[];
+    readonly messages?: readonly (AgentTurnAssistantMessage & {
+      readonly id: string;
+    })[];
   }) => Promise<unknown>;
   readonly failTurn: (input: {
     readonly commandId: string;
@@ -211,6 +220,30 @@ const partDisplayLength = (part: AgentTurnContentPart): number => {
   return argumentLength + resultLength + (part.progress?.length ?? 0);
 };
 
+const isDisplayablePart = (part: AgentTurnContentPart): boolean => {
+  if (part.type === "text" || part.type === "reasoning")
+    return part.text.length > 0;
+  return true;
+};
+
+const hasDisplayableMessageContent = (message: {
+  readonly text: string;
+  readonly parts?: readonly AgentTurnContentPart[];
+}): boolean =>
+  message.text.length > 0 ||
+  (message.parts ?? []).some((part) => isDisplayablePart(part));
+
+const hasDisplayableResultContent = (result: {
+  readonly text: string;
+  readonly parts?: readonly AgentTurnContentPart[];
+  readonly messages?: readonly AgentTurnAssistantMessage[];
+}): boolean =>
+  result.text.length > 0 ||
+  (result.parts ?? []).some((part) => isDisplayablePart(part)) ||
+  (result.messages ?? []).some((message) =>
+    hasDisplayableMessageContent(message),
+  );
+
 const mergeParts = (
   existing: readonly AgentTurnContentPart[],
   completed: readonly AgentTurnContentPart[] | undefined,
@@ -265,13 +298,44 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
   ): void => {
     const controller = new AbortController();
     let draftText = "";
-    const draftParts = new Map<number, AgentTurnContentPart>();
+    const draftParts = new Map<string, AgentTurnContentPart>();
+    const draftMessages = new Map<
+      number,
+      {
+        text: string;
+        parts: Map<number, AgentTurnContentPart>;
+      }
+    >();
     let checkpointedContentLength = 0;
     let checkpointedDurableFingerprint = "";
     let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     let checkpointChain = Promise.resolve();
     let storageFaulted = false;
     const turn = input.admission.result.turn;
+    const assistantMessageIds = new Map<number, string>([
+      [0, turn.assistantMessageId],
+    ]);
+    const messageIdForIndex = (messageIndex = 0): string => {
+      const existing = assistantMessageIds.get(messageIndex);
+      if (existing !== undefined) return existing;
+      const id = randomUUID();
+      assistantMessageIds.set(messageIndex, id);
+      return id;
+    };
+
+    const draftForIndex = (messageIndex = 0) => {
+      const existing = draftMessages.get(messageIndex);
+      if (existing !== undefined) return existing;
+      const draft = {
+        text: "",
+        parts: new Map<number, AgentTurnContentPart>(),
+      };
+      draftMessages.set(messageIndex, draft);
+      return draft;
+    };
+
+    const draftPartKey = (messageIndex: number, partOrder: number): string =>
+      `${messageIndex}:${partOrder}`;
 
     const reportPersistenceFailure = async (
       operation: string,
@@ -324,6 +388,20 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     const currentParts = (): readonly AgentTurnContentPart[] =>
       [...draftParts.values()].sort((left, right) => left.order - right.order);
 
+    const currentMessageDrafts = (): readonly (AgentTurnAssistantMessage & {
+      readonly id: string;
+    })[] =>
+      [...draftMessages.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([messageIndex, draft]) => ({
+          id: messageIdForIndex(messageIndex),
+          text: draft.text,
+          parts: [...draft.parts.values()].sort(
+            (left, right) => left.order - right.order,
+          ),
+        }))
+        .filter((message) => hasDisplayableMessageContent(message));
+
     const checkpointDraft = async (): Promise<void> => {
       const parts = currentParts();
       const capturedLength = parts.reduce(
@@ -332,7 +410,8 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
       );
       if (capturedLength === checkpointedContentLength) return;
       const text = draftText;
-      const fingerprint = JSON.stringify({ text, parts });
+      const messages = currentMessageDrafts();
+      const fingerprint = JSON.stringify({ text, parts, messages });
       if (fingerprint === checkpointedDurableFingerprint) {
         checkpointedContentLength = capturedLength;
         return;
@@ -347,6 +426,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               turnId: input.admission.turnId,
               text,
               parts,
+              ...(messages.length === 0 ? {} : { messages }),
             }),
           );
           checkpointedContentLength = capturedLength;
@@ -414,7 +494,9 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               if (controller.signal.aborted) return;
               const timestamp = new Date().toISOString();
               if (event.type === "assistant_delta") {
-                const existing = draftParts.get(event.part.order);
+                const messageIndex = event.messageIndex ?? 0;
+                const messageDraft = draftForIndex(messageIndex);
+                const existing = messageDraft.parts.get(event.part.order);
                 const existingText =
                   existing?.type === "text" || existing?.type === "reasoning"
                     ? existing.text
@@ -423,8 +505,15 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                   ...event.part,
                   text: `${existingText}${event.part.text}`,
                 };
-                draftParts.set(event.part.order, nextPart);
-                if (event.part.type === "text") draftText += event.part.text;
+                messageDraft.parts.set(event.part.order, nextPart);
+                draftParts.set(
+                  draftPartKey(messageIndex, event.part.order),
+                  nextPart,
+                );
+                if (event.part.type === "text") {
+                  draftText += event.part.text;
+                  messageDraft.text += event.part.text;
+                }
                 if (
                   currentParts().reduce(
                     (total, part) => total + partDisplayLength(part),
@@ -435,13 +524,14 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                 )
                   await checkpointDraft();
                 else scheduleCheckpoint();
+                const messageId = messageIdForIndex(messageIndex);
                 stream.publishLive(
                   input.sessionId,
                   event.part.type === "reasoning"
                     ? input.makeAssistantReasoningDelta({
                         sessionId: input.sessionId,
                         turnId: input.admission.turnId,
-                        messageId: turn.assistantMessageId,
+                        messageId,
                         order: event.part.order,
                         text: event.part.text,
                         timestamp,
@@ -449,7 +539,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                     : input.makeAssistantTextDelta({
                         sessionId: input.sessionId,
                         turnId: input.admission.turnId,
-                        messageId: turn.assistantMessageId,
+                        messageId,
                         text: event.part.text,
                         order: event.part.order,
                         timestamp,
@@ -485,7 +575,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                     ? {}
                     : { approvalReason: approval.reason }),
                 };
-                draftParts.set(toolPart.order, toolPart);
+                draftParts.set(draftPartKey(0, toolPart.order), toolPart);
                 await checkpointDraft();
                 await persistRequired("recordToolStarted", () =>
                   input.repository.recordToolStarted({
@@ -559,7 +649,10 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                   ? {}
                   : { approvalReason: approval.reason }),
               };
-              draftParts.set(completedToolPart.order, completedToolPart);
+              draftParts.set(
+                draftPartKey(0, completedToolPart.order),
+                completedToolPart,
+              );
               await checkpointDraft();
               await persistRequired("recordToolCompleted", () =>
                 input.repository.recordToolCompleted({
@@ -599,12 +692,32 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
         ]);
         if (controller.signal.aborted)
           throw new AgentTurnError("agent_turn_interrupted");
-        if (typeof completed.text !== "string" || completed.text.length === 0)
+        if (
+          typeof completed.text !== "string" ||
+          !hasDisplayableResultContent(completed)
+        )
           throw new AgentTurnError("agent_turn_failed");
         await options.privatePiStateRepository?.recordOperationSettled({
           id: input.sessionId,
           operationId,
           assistantText: completed.text,
+        });
+        const completedMessages = completed.messages?.map((message, index) => {
+          const draft = draftMessages.get(index);
+          const parts = mergeParts(
+            draft === undefined
+              ? []
+              : [...draft.parts.values()].sort(
+                  (left, right) => left.order - right.order,
+                ),
+            message.parts,
+            message.text,
+          );
+          return {
+            id: messageIdForIndex(index),
+            text: message.text,
+            ...(parts.length === 0 ? {} : { parts }),
+          };
         });
         const finalParts = mergeParts(
           currentParts(),
@@ -618,6 +731,9 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
             turnId: input.admission.turnId,
             text: completed.text,
             parts: finalParts,
+            ...(completedMessages === undefined
+              ? {}
+              : { messages: completedMessages }),
           }),
         );
         stream.wakeEvents(input.sessionId);

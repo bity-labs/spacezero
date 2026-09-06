@@ -90,12 +90,16 @@ export type AgentTurnAssistantContentPart =
 export interface AgentTurnDelta {
   readonly kind: "assistant_content";
   readonly part: AgentTurnAssistantContentPart;
+  /** Zero-based assistant message index within the current agent turn. */
+  readonly messageIndex?: number;
 }
 
 export type AgentRuntimeEvent =
   | {
       readonly type: "assistant_delta";
       readonly part: AgentTurnAssistantContentPart;
+      /** Zero-based assistant message index within the current agent turn. */
+      readonly messageIndex?: number;
     }
   | {
       readonly type: "tool_started";
@@ -186,11 +190,20 @@ export interface AgentTurnInput {
   readonly onEvent?: (event: AgentRuntimeEvent) => void | Promise<void>;
 }
 
-export interface AgentTurnResult {
-  /** Completed assistant message text for the turn. */
+export interface AgentTurnAssistantMessage {
+  /** Completed assistant message text. May be empty when the message contains only non-text parts. */
   readonly text: string;
-  /** Completed safe displayable assistant content in provider order. */
+  /** Completed safe displayable assistant content in provider order for this message. */
   readonly parts?: readonly AgentTurnContentPart[];
+}
+
+export interface AgentTurnResult {
+  /** Completed assistant text for legacy single-message callers. */
+  readonly text: string;
+  /** Completed safe displayable assistant content for legacy single-message callers. */
+  readonly parts?: readonly AgentTurnContentPart[];
+  /** Completed assistant messages in provider order for this turn. */
+  readonly messages?: readonly AgentTurnAssistantMessage[];
 }
 
 export interface ConversationRunner {
