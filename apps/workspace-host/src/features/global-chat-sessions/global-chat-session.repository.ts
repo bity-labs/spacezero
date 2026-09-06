@@ -307,9 +307,7 @@ const hydrateParts = (input: {
       } as GlobalChatSessionMessagePart,
     ];
   });
-  return parts.length === 0
-    ? fallback
-    : parts.sort((l, r) => l.order - r.order);
+  return parts.sort((l, r) => l.order - r.order);
 };
 
 const storedParts = (
@@ -346,20 +344,20 @@ const storedPartsJson = (
 ): string | null =>
   parts === undefined ? null : JSON.stringify(storedParts(parts));
 
+const storedMessagePartsJson = (
+  parts: readonly StoredConversationPart[] | undefined,
+): string => JSON.stringify(storedParts(parts ?? []));
+
 const storedDraftMessagesJson = (
-  messages: readonly StoredDraftMessage[] | undefined,
-): string | null =>
-  messages === undefined
-    ? null
-    : JSON.stringify(
-        messages.map((message) => ({
-          id: message.id,
-          text: message.text,
-          ...(message.parts === undefined
-            ? {}
-            : { parts: storedParts(message.parts) }),
-        })),
-      );
+  messages: readonly StoredDraftMessage[],
+): string =>
+  JSON.stringify(
+    messages.map((message) => ({
+      id: message.id,
+      text: message.text,
+      parts: storedParts(message.parts ?? []),
+    })),
+  );
 
 const toMessage = (row: MessageRow): GlobalChatSessionMessage => ({
   id: row.message_id,
@@ -426,16 +424,20 @@ const messagePageInfo = (
   };
 };
 
+/**
+ * Pre-release wipe policy (ADR 0044): legacy single-message turn rows are
+ * wiped, never backfilled, so a missing or malformed assistant message id
+ * list is durable-data corruption and must fail closed.
+ */
 const assistantMessageIdsFromTurn = (row: TurnRow): readonly string[] => {
   if (row.assistant_message_ids_json === null)
-    return [row.assistant_message_id];
+    throw new GlobalChatSessionServiceError("global_chat_session_unavailable");
   const parsed = JSON.parse(row.assistant_message_ids_json) as unknown;
   if (
     !Array.isArray(parsed) ||
-    parsed.some((value) => typeof value !== "string") ||
-    parsed.length === 0
+    parsed.some((value) => typeof value !== "string")
   )
-    return [row.assistant_message_id];
+    throw new GlobalChatSessionServiceError("global_chat_session_unavailable");
   return parsed;
 };
 
@@ -445,20 +447,21 @@ const draftMessagesFromTurn = (
   | readonly {
       readonly id: string;
       readonly text: string;
-      readonly parts?: readonly GlobalChatSessionMessagePart[];
+      readonly parts: readonly GlobalChatSessionMessagePart[];
     }[]
   | undefined => {
   if (row.draft_messages_json === null) return undefined;
   const parsed = JSON.parse(row.draft_messages_json) as unknown;
-  if (!Array.isArray(parsed)) return undefined;
-  const messages = parsed.flatMap(
+  if (!Array.isArray(parsed))
+    throw new GlobalChatSessionServiceError("global_chat_session_unavailable");
+  return parsed.map(
     (
       message,
     ): {
       readonly id: string;
       readonly text: string;
-      readonly parts?: readonly GlobalChatSessionMessagePart[];
-    }[] => {
+      readonly parts: readonly GlobalChatSessionMessagePart[];
+    } => {
       if (
         typeof message !== "object" ||
         message === null ||
@@ -466,28 +469,25 @@ const draftMessagesFromTurn = (
         typeof message.id !== "string" ||
         message.id.length === 0 ||
         !("text" in message) ||
-        typeof message.text !== "string"
+        typeof message.text !== "string" ||
+        !("parts" in message) ||
+        !Array.isArray(message.parts)
       )
-        return [];
-      const partsJson =
-        "parts" in message && Array.isArray(message.parts)
-          ? JSON.stringify(message.parts)
-          : null;
-      return [
-        {
-          id: message.id,
+        throw new GlobalChatSessionServiceError(
+          "global_chat_session_unavailable",
+        );
+      return {
+        id: message.id,
+        text: message.text,
+        parts: hydrateParts({
+          messageId: message.id,
+          turnId: row.turn_id,
           text: message.text,
-          parts: hydrateParts({
-            messageId: message.id,
-            turnId: row.turn_id,
-            text: message.text,
-            partsJson,
-          }),
-        },
-      ];
+          partsJson: JSON.stringify(message.parts),
+        }),
+      };
     },
   );
-  return messages.length === 0 ? undefined : messages;
 };
 
 const toTurn = (row: TurnRow): GlobalChatSessionTurn => {
@@ -495,6 +495,12 @@ const toTurn = (row: TurnRow): GlobalChatSessionTurn => {
     ? failureDetails(row.failure_reason as GlobalChatSessionTurnFailureReason)
     : undefined;
   const draftMessages = draftMessagesFromTurn(row);
+  // While a turn is active, draftMessages is always present: an empty array
+  // until the first checkpoint produces drafts.
+  const turnActive =
+    row.state === "queued" ||
+    row.state === "running" ||
+    row.state === "recovery_required";
   return {
     id: row.turn_id,
     commandId: row.command_id,
@@ -516,7 +522,11 @@ const toTurn = (row: TurnRow): GlobalChatSessionTurn => {
             partsJson: row.draft_parts_json,
           }),
         }),
-    ...(draftMessages === undefined ? {} : { draftMessages }),
+    ...(draftMessages === undefined
+      ? turnActive
+        ? { draftMessages: [] }
+        : {}
+      : { draftMessages }),
     ...(row.failure_reason === null
       ? {}
       : { failureReason: row.failure_reason }),
@@ -1372,7 +1382,7 @@ export const createGlobalChatSessionRepository = (options: {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly StoredConversationPart[];
-    readonly messages?: readonly {
+    readonly messages: readonly {
       readonly id: string;
       readonly text: string;
       readonly parts?: readonly StoredConversationPart[];
@@ -1394,18 +1404,11 @@ export const createGlobalChatSessionRepository = (options: {
             if (!["queued", "running"].includes(turnRows[0].state))
               throw new GlobalChatSessionServiceError("turn_not_active");
             const now = new Date().toISOString();
-            const primaryMessageId = turnRows[0].assistant_message_id;
-            const messages = input.messages ?? [
-              {
-                id: primaryMessageId,
-                text: input.text,
-                ...(input.parts === undefined ? {} : { parts: input.parts }),
-              },
-            ];
+            const messages = input.messages;
             let sequence = rows[0].last_sequence;
             for (const message of messages) {
               sequence += 1;
-              const contentPartsJson = storedPartsJson(message.parts);
+              const contentPartsJson = storedMessagePartsJson(message.parts);
               const eventParts = hydrateParts({
                 messageId: message.id,
                 turnId: input.turnId,
@@ -1570,7 +1573,7 @@ export const createGlobalChatSessionRepository = (options: {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly StoredConversationPart[];
-    readonly messages?: readonly StoredDraftMessage[];
+    readonly messages: readonly StoredDraftMessage[];
   }): Promise<void> => {
     await runSql(
       options.databasePath,
@@ -1584,19 +1587,13 @@ export const createGlobalChatSessionRepository = (options: {
             if (!rows[0] || !turnRows[0]) return;
             if (!["queued", "running"].includes(turnRows[0].state)) return;
             const now = new Date().toISOString();
-            const messages = input.messages ?? [
-              {
-                id: turnRows[0].assistant_message_id,
-                text: input.text,
-                ...(input.parts === undefined ? {} : { parts: input.parts }),
-              },
-            ];
+            const messages = input.messages;
             const contentPartsJson = storedPartsJson(input.parts);
             const draftMessagesJson = storedDraftMessagesJson(messages);
             let sequence = rows[0].last_sequence;
             for (const message of messages) {
               sequence += 1;
-              const eventPartsJson = storedPartsJson(message.parts);
+              const eventPartsJson = storedMessagePartsJson(message.parts);
               const eventParts = hydrateParts({
                 messageId: message.id,
                 turnId: input.turnId,

@@ -42,6 +42,7 @@ const turn = {
   state: "running" as const,
   userMessageId: messageId,
   assistantMessageId,
+  assistantMessageIds: [assistantMessageId],
   providerId: "anthropic",
   modelId: "claude-sonnet-4-5",
   thinkingLevel: "off" as const,

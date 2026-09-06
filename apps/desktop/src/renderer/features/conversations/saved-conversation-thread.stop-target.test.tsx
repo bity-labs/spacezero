@@ -46,6 +46,8 @@ describe("SavedConversationThread stop target binding", () => {
           state: "running" as const,
           userMessageId: "user-1",
           assistantMessageId: "assistant-1",
+          assistantMessageIds: ["assistant-1"],
+          draftMessages: [],
           providerId: "anthropic",
           modelId: "claude-sonnet-4-5",
           thinkingLevel: "off" as const,

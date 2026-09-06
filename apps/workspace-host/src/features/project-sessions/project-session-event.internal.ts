@@ -269,7 +269,7 @@ export const toPublicProjectSessionEvent = (
         turnId: event.turnId,
         messageId: event.messageId,
         text: event.text,
-        ...(event.parts === undefined ? {} : { parts: event.parts }),
+        parts: event.parts,
         timestamp: event.timestamp,
       };
     case "AgentMessageCompletedV1":
@@ -280,7 +280,7 @@ export const toPublicProjectSessionEvent = (
         turnId: event.turnId,
         messageId: event.messageId,
         text: event.text,
-        ...(event.parts === undefined ? {} : { parts: event.parts }),
+        parts: event.parts,
         timestamp: event.timestamp,
       };
     case "AgentTurnFailedV1":
