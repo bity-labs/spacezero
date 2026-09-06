@@ -182,6 +182,133 @@ const installHostBackedConversationFetch = () => {
   return requests;
 };
 
+type DraftRequestDetails = {
+  url: string;
+  method: string;
+  authorization: string | null;
+  body: unknown;
+};
+
+const createdGlobalChatSessionId = "77777777-7777-4777-8777-777777777777";
+const createdGlobalChatCommandId = "99999999-9999-4999-8999-999999999999";
+const createdGlobalChatTurnId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const createdGlobalChatUserMessageId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const createdGlobalChatAssistantMessageId =
+  "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const createdGlobalChatSession = {
+  id: createdGlobalChatSessionId,
+  title: "First global prompt",
+  archived: false,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  lastSequence: 1,
+};
+const createdGlobalChatTurn = {
+  id: createdGlobalChatTurnId,
+  commandId: createdGlobalChatCommandId,
+  state: "running",
+  userMessageId: createdGlobalChatUserMessageId,
+  assistantMessageId: createdGlobalChatAssistantMessageId,
+  assistantMessageIds: [createdGlobalChatAssistantMessageId],
+  providerId: "anthropic",
+  modelId: "claude-sonnet-4-5",
+  thinkingLevel: "off",
+  draftText: "",
+  draftMessages: [],
+  createdAt: timestamp,
+  updatedAt: timestamp,
+};
+const createdGlobalChatUserMessage = {
+  id: createdGlobalChatUserMessageId,
+  role: "user",
+  text: "First global prompt",
+  sequence: 1,
+  createdAt: timestamp,
+};
+const createdGlobalChatCreateResult = {
+  session: createdGlobalChatSession,
+  turn: createdGlobalChatTurn,
+  userMessage: createdGlobalChatUserMessage,
+  firstMessage: createdGlobalChatUserMessage,
+};
+const errorResponse = (body: unknown, status: number) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
+const installGlobalChatDraftFetch = (options: {
+  readonly createResponse: (request: Request) => Response;
+}) => {
+  const requests: DraftRequestDetails[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = requestFrom(input, init);
+      const parsed = new URL(request.url);
+      requests.push({
+        url: request.url,
+        method: request.method,
+        authorization: request.headers.get("authorization"),
+        body:
+          request.method === "POST" || request.method === "PUT"
+            ? await request
+                .clone()
+                .json()
+                .catch(() => undefined)
+            : undefined,
+      });
+      if (parsed.pathname === "/v1/connection")
+        return json({
+          instanceId: descriptor.instanceId,
+          protocolVersion: descriptor.protocolVersion,
+          status: "ready",
+        });
+      if (parsed.pathname === "/v1/events") return hostConnectedStream();
+      if (
+        parsed.pathname === "/v1/global-chat-sessions" &&
+        request.method === "GET"
+      )
+        return json({ sessions: [] });
+      if (
+        parsed.pathname === "/v1/global-chat-sessions" &&
+        request.method === "POST"
+      )
+        return options.createResponse(request);
+      if (
+        parsed.pathname ===
+        `/v1/global-chat-sessions/${createdGlobalChatSessionId}/messages`
+      )
+        return json({
+          session: createdGlobalChatSession,
+          messages: [createdGlobalChatUserMessage],
+          activeTurn: createdGlobalChatTurn,
+          latestTurn: createdGlobalChatTurn,
+        });
+      if (
+        parsed.pathname ===
+        `/v1/global-chat-sessions/${createdGlobalChatSessionId}/follow-ups`
+      )
+        return json({ session: createdGlobalChatSession, followUps: [] });
+      if (
+        parsed.pathname ===
+        `/v1/global-chat-sessions/${createdGlobalChatSessionId}/events`
+      )
+        // Keep the stream open so the subscription waits instead of hot-reconnecting.
+        return new Response(
+          new ReadableStream({
+            start() {
+              // Never closes during the test.
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      return new Response("not found", { status: 404 });
+    }),
+  );
+  return requests;
+};
+
 describe("App", () => {
   afterEach(() => {
     cleanup();
@@ -303,6 +430,129 @@ describe("App", () => {
     );
     expect(messageRequest.url).not.toContain(descriptor.clientCapability);
     expect(getLocalHostConnection).toHaveBeenCalled();
+  });
+
+  it("opens the New chat draft from the sidebar without creating a durable session", async () => {
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    const requests = installGlobalChatDraftFetch({ createResponse: json });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "New chat" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "New chat",
+    );
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+
+    // Abandoning the draft by navigating away must not create a session.
+    fireEvent.click(screen.getByRole("button", { name: "Agent Capabilities" }));
+    expect(
+      await screen.findByRole("heading", { name: "Agent Capabilities" }),
+    ).toBeInTheDocument();
+
+    const createRequests = requests.filter(
+      (request) =>
+        request.method === "POST" &&
+        new URL(request.url).pathname === "/v1/global-chat-sessions",
+    );
+    expect(createRequests).toHaveLength(0);
+  });
+
+  it("creates the Global Chat Session from the New chat draft on first send", async () => {
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    const requests = installGlobalChatDraftFetch({
+      createResponse: () => json(createdGlobalChatCreateResult),
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
+
+    const composer = await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.change(composer, {
+      target: { value: "First global prompt" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    const createRequest = await waitFor(() => {
+      const request = requests.find(
+        (candidate) =>
+          candidate.method === "POST" &&
+          new URL(candidate.url).pathname === "/v1/global-chat-sessions",
+      );
+      if (!request) throw new Error("create-with-first-prompt request missing");
+      return request;
+    });
+    expect(createRequest.authorization).toBe(
+      `Bearer ${descriptor.clientCapability}`,
+    );
+    expect(createRequest.body).toEqual({
+      commandId: expect.any(String),
+      firstPrompt: "First global prompt",
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: createdGlobalChatSessionId }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("First global prompt")).toBeInTheDocument();
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "Global Chat Session",
+    );
+  });
+
+  it("surfaces first-prompt creation errors without creating a fake local chat", async () => {
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    const requests = installGlobalChatDraftFetch({
+      createResponse: () =>
+        errorResponse(
+          {
+            code: "command_id_conflict",
+            message:
+              "This Global Chat Session command ID was already used for different input.",
+          },
+          409,
+        ),
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New chat" }));
+
+    const composer = await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.change(composer, {
+      target: { value: "First global prompt" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This Global Chat Session command ID was already used for different input.",
+    );
+    expect(
+      screen.getByRole("heading", { name: "New chat" }),
+    ).toBeInTheDocument();
+
+    const createRequests = requests.filter(
+      (request) =>
+        request.method === "POST" &&
+        new URL(request.url).pathname === "/v1/global-chat-sessions",
+    );
+    expect(createRequests).toHaveLength(1);
   });
 
   it("opens the add capability dialog and toggles row management actions", async () => {

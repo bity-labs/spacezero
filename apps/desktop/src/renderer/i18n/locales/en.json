@@ -32,7 +32,8 @@
     "projectSession": "Project Session",
     "projectSessionSurface": "Project Session conversation",
     "globalChatSession": "Global Chat Session",
-    "globalChatSessionSurface": "Global Chat Session conversation"
+    "globalChatSessionSurface": "Global Chat Session conversation",
+    "newChatDraft": "New chat draft"
   },
   "settings": {
     "title": "Settings",
