@@ -118,6 +118,7 @@ interface TurnRow {
   readonly command_id: string;
   readonly user_message_id: string;
   readonly assistant_message_id: string;
+  readonly assistant_message_ids_json: string | null;
   readonly provider_id: string;
   readonly model_id: string;
   readonly thinking_level: RuntimeConfigurationRow["default_thinking_level"];
@@ -395,19 +396,19 @@ const listMessagePage = (
     const beforeSequence = options?.beforeSequence;
     if (limit === undefined && beforeSequence === undefined) {
       const rows =
-        yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence ASC`;
+        yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.turn_id = m.turn_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence ASC`;
       return { rows, hasMoreOlder: false };
     }
     if (limit === undefined) {
       const rows =
-        yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} AND m.sequence < ${beforeSequence} ORDER BY m.sequence ASC`;
+        yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.turn_id = m.turn_id) WHERE m.session_id = ${sessionId} AND m.sequence < ${beforeSequence} ORDER BY m.sequence ASC`;
       return { rows, hasMoreOlder: false };
     }
     const requested = limit + 1;
     const rows =
       beforeSequence === undefined
-        ? yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence DESC LIMIT ${requested}`
-        : yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} AND m.sequence < ${beforeSequence} ORDER BY m.sequence DESC LIMIT ${requested}`;
+        ? yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.turn_id = m.turn_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence DESC LIMIT ${requested}`
+        : yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.turn_id = m.turn_id) WHERE m.session_id = ${sessionId} AND m.sequence < ${beforeSequence} ORDER BY m.sequence DESC LIMIT ${requested}`;
     return {
       rows: (rows.length > limit ? rows.slice(0, limit) : rows).toReversed(),
       hasMoreOlder: rows.length > limit,
@@ -476,12 +477,26 @@ const failureDetails = (
   }
 };
 
+const assistantMessageIdsFromTurn = (row: TurnRow): readonly string[] => {
+  if (row.assistant_message_ids_json === null)
+    return [row.assistant_message_id];
+  const parsed = JSON.parse(row.assistant_message_ids_json) as unknown;
+  if (
+    !Array.isArray(parsed) ||
+    parsed.some((value) => typeof value !== "string") ||
+    parsed.length === 0
+  )
+    return [row.assistant_message_id];
+  return parsed;
+};
+
 const toTurn = (row: TurnRow): ProjectSessionTurn => ({
   id: row.turn_id,
   commandId: row.command_id,
   state: row.state,
   userMessageId: row.user_message_id,
   assistantMessageId: row.assistant_message_id,
+  assistantMessageIds: assistantMessageIdsFromTurn(row),
   providerId: row.provider_id,
   modelId: row.model_id,
   thinkingLevel: row.thinking_level,
@@ -632,7 +647,7 @@ const getHostId = (sql: SqlClient) =>
   });
 
 const getMessageById = (sql: SqlClient, sessionId: string, messageId: string) =>
-  sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} AND m.message_id = ${messageId}`;
+  sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.turn_id = m.turn_id) WHERE m.session_id = ${sessionId} AND m.message_id = ${messageId}`;
 
 const replayPromptResult = (
   sql: SqlClient,
@@ -1570,7 +1585,7 @@ export const createProjectSessionRepository = (options: {
               });
 
               yield* sql`INSERT INTO chat_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${userMessageId}, 'user', ${input.prompt}, ${baseSequence + 1}, ${turnId}, ${now})`;
-              yield* sql`INSERT INTO chat_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, provider_id, model_id, thinking_level, state, draft_text, created_at, updated_at) VALUES (${input.sessionId}, ${turnId}, ${input.commandId}, ${userMessageId}, ${assistantMessageId}, ${runtime.providerId}, ${runtime.modelId}, ${runtime.defaultThinkingLevel}, 'running', '', ${now}, ${now})`;
+              yield* sql`INSERT INTO chat_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, assistant_message_ids_json, provider_id, model_id, thinking_level, state, draft_text, created_at, updated_at) VALUES (${input.sessionId}, ${turnId}, ${input.commandId}, ${userMessageId}, ${assistantMessageId}, ${JSON.stringify([assistantMessageId])}, ${runtime.providerId}, ${runtime.modelId}, ${runtime.defaultThinkingLevel}, 'running', '', ${now}, ${now})`;
               yield* sql`UPDATE chat_session_pi_contexts SET last_turn_id = ${turnId}, updated_at = ${now} WHERE session_id = ${input.sessionId}`;
               yield* sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${input.sessionId}, 'pending', ${baseSequence + 2}, ${now}, ${now})`;
               yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${baseSequence + 2} WHERE session_id = ${input.sessionId}`;
@@ -1649,6 +1664,11 @@ export const createProjectSessionRepository = (options: {
       readonly turnId: string;
       readonly text: string;
       readonly parts?: readonly StoredConversationPart[];
+      readonly messages?: readonly {
+        readonly id: string;
+        readonly text: string;
+        readonly parts?: readonly StoredConversationPart[];
+      }[];
     }): Promise<SubmitSessionPromptResult> =>
       runSql(
         options.databasePath,
@@ -1669,35 +1689,45 @@ export const createProjectSessionRepository = (options: {
               if (!["queued", "running"].includes(turnRows[0].state))
                 throw new ProjectSessionServiceError("turn_not_active");
               const now = new Date().toISOString();
-              const agentMessageId = turnRows[0].assistant_message_id;
-              const agentSequence = row.last_sequence + 1;
-              const contentPartsJson = storedPartsJson(input.parts);
-              const eventParts = hydrateParts({
-                messageId: agentMessageId,
-                turnId: input.turnId,
-                text: input.text,
-                partsJson: contentPartsJson,
-              });
-
-              yield* appendEvent({
-                sql,
-                sessionId: input.sessionId,
-                sequence: agentSequence,
-                payload: {
-                  type: "AgentMessageCompletedV1",
-                  version: 1,
-                  sessionId: input.sessionId,
-                  turnId: input.turnId,
-                  messageId: agentMessageId,
+              const primaryAgentMessageId = turnRows[0].assistant_message_id;
+              const messages = input.messages ?? [
+                {
+                  id: primaryAgentMessageId,
                   text: input.text,
-                  parts: eventParts,
-                  timestamp: now,
+                  ...(input.parts === undefined ? {} : { parts: input.parts }),
                 },
-                createdAt: now,
-              });
-
-              yield* sql`INSERT INTO chat_session_messages (session_id, message_id, role, text, content_parts_json, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${agentMessageId}, 'assistant', ${input.text}, ${contentPartsJson}, ${agentSequence}, ${input.turnId}, ${now})`;
-              yield* sql`UPDATE chat_session_turns SET state = 'completed', draft_text = ${input.text}, draft_parts_json = ${contentPartsJson}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+              ];
+              let agentSequence = row.last_sequence;
+              for (const message of messages) {
+                agentSequence += 1;
+                const contentPartsJson = storedPartsJson(message.parts);
+                const eventParts = hydrateParts({
+                  messageId: message.id,
+                  turnId: input.turnId,
+                  text: message.text,
+                  partsJson: contentPartsJson,
+                });
+                yield* appendEvent({
+                  sql,
+                  sessionId: input.sessionId,
+                  sequence: agentSequence,
+                  payload: {
+                    type: "AgentMessageCompletedV1",
+                    version: 1,
+                    sessionId: input.sessionId,
+                    turnId: input.turnId,
+                    messageId: message.id,
+                    text: message.text,
+                    parts: eventParts,
+                    timestamp: now,
+                  },
+                  createdAt: now,
+                });
+                yield* sql`INSERT INTO chat_session_messages (session_id, message_id, role, text, content_parts_json, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${message.id}, 'assistant', ${message.text}, ${contentPartsJson}, ${agentSequence}, ${input.turnId}, ${now})`;
+              }
+              const assistantMessageIds = messages.map((message) => message.id);
+              const draftPartsJson = storedPartsJson(input.parts);
+              yield* sql`UPDATE chat_session_turns SET state = 'completed', draft_text = ${input.text}, draft_parts_json = ${draftPartsJson}, assistant_message_ids_json = ${JSON.stringify(assistantMessageIds)}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
               yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${agentSequence} WHERE session_id = ${input.sessionId}`;
               yield* sql`UPDATE chat_session_command_receipts SET status = 'succeeded', committed_sequence = ${agentSequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
 

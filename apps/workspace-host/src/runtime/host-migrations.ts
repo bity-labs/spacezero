@@ -243,9 +243,10 @@ export const addChatSessionReasoningPartsMigration = Effect.gen(function* () {
   yield* sql`ALTER TABLE chat_session_turns ADD COLUMN draft_parts_json TEXT CHECK (draft_parts_json IS NULL OR json_valid(draft_parts_json))`;
 });
 
-export const createGlobalChatSessionFollowUpsMigration = Effect.gen(function* () {
-  const sql = yield* SqlClient;
-  yield* sql`
+export const createGlobalChatSessionFollowUpsMigration = Effect.gen(
+  function* () {
+    const sql = yield* SqlClient;
+    yield* sql`
 CREATE TABLE global_chat_session_follow_ups (
   session_id TEXT NOT NULL,
   follow_up_id TEXT NOT NULL UNIQUE,
@@ -260,8 +261,8 @@ CREATE TABLE global_chat_session_follow_ups (
   FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
     ON UPDATE RESTRICT ON DELETE RESTRICT
 )`;
-  yield* sql`CREATE INDEX global_chat_session_follow_ups_queue ON global_chat_session_follow_ups(session_id, state, position)`;
-  yield* sql`
+    yield* sql`CREATE INDEX global_chat_session_follow_ups_queue ON global_chat_session_follow_ups(session_id, state, position)`;
+    yield* sql`
 CREATE TRIGGER global_chat_session_follow_ups_require_global_kind
 BEFORE INSERT ON global_chat_session_follow_ups
 FOR EACH ROW
@@ -269,6 +270,13 @@ WHEN (SELECT kind FROM chat_sessions WHERE session_id = NEW.session_id) <> 'glob
 BEGIN
   SELECT RAISE(ABORT, 'global_chat_follow_up_requires_global_chat_session');
 END`;
+  },
+);
+
+export const addTurnAssistantMessageIdsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`ALTER TABLE chat_session_turns ADD COLUMN assistant_message_ids_json TEXT CHECK (assistant_message_ids_json IS NULL OR json_valid(assistant_message_ids_json))`;
+  yield* sql`UPDATE chat_session_turns SET assistant_message_ids_json = json_array(assistant_message_id) WHERE assistant_message_ids_json IS NULL`;
 });
 
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
@@ -303,6 +311,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     8,
     "create_global_chat_session_follow_ups",
     Effect.succeed(createGlobalChatSessionFollowUpsMigration),
+  ],
+  [
+    9,
+    "add_turn_assistant_message_ids",
+    Effect.succeed(addTurnAssistantMessageIdsMigration),
   ],
 ] as const);
 
