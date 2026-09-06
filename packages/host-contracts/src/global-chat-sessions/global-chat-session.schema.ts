@@ -270,6 +270,39 @@ export interface UnarchiveGlobalChatSessionResult {
   readonly session: GlobalChatSessionSummary;
 }
 
+export interface RenameGlobalChatSessionRequest {
+  readonly commandId: GlobalChatSessionCommandId;
+  readonly title: string;
+}
+
+export interface RenameGlobalChatSessionResult {
+  readonly session: GlobalChatSessionSummary;
+}
+
+/**
+ * Rename validation problems. Titles are trimmed before persistence; the
+ * rules mirror GlobalChatSessionTitleSchema so a stored title always parses.
+ */
+export type GlobalChatSessionTitleProblem =
+  | "blank"
+  | "too_long"
+  | "multi_line";
+
+/**
+ * Validates a rename title without silently re-truncating it. Returns the
+ * first problem with the trimmed value, or undefined when the title is
+ * acceptable as-is.
+ */
+export const globalChatSessionTitleProblem = (
+  title: string,
+): { readonly problem: GlobalChatSessionTitleProblem; readonly trimmed: string } | undefined => {
+  const trimmed = title.trim();
+  if (trimmed.length === 0) return { problem: "blank", trimmed };
+  if (/[\r\n]/u.test(title)) return { problem: "multi_line", trimmed };
+  if ([...trimmed].length > 60) return { problem: "too_long", trimmed };
+  return undefined;
+};
+
 export interface InterruptGlobalChatSessionTurnRequest {
   readonly commandId: GlobalChatSessionCommandId;
 }
@@ -646,6 +679,13 @@ export const UnarchiveGlobalChatSessionRequestSchema = Schema.Struct({
 export const UnarchiveGlobalChatSessionResultSchema = Schema.Struct({
   session: GlobalChatSessionSummarySchema,
 });
+export const RenameGlobalChatSessionRequestSchema = Schema.Struct({
+  commandId: GlobalChatSessionCommandIdSchema,
+  title: Schema.String,
+});
+export const RenameGlobalChatSessionResultSchema = Schema.Struct({
+  session: GlobalChatSessionSummarySchema,
+});
 export const InterruptGlobalChatSessionTurnRequestSchema = Schema.Struct({
   commandId: GlobalChatSessionCommandIdSchema,
 });
@@ -699,6 +739,14 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     version: Schema.Literals([1]),
     sessionId: GlobalChatSessionIdSchema,
     commandId: GlobalChatSessionCommandIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionRenamedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
+    title: GlobalChatSessionTitleSchema,
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({

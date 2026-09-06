@@ -6,6 +6,7 @@ export type GlobalChatSessionErrorCode =
   | "global_chat_session_unavailable"
   | "global_chat_session_not_found"
   | "global_chat_session_archived"
+  | "global_chat_session_title_invalid"
   | "global_chat_session_turn_in_progress"
   | "global_chat_session_runtime_revision_conflict"
   | "global_chat_session_recovery_required"
@@ -27,7 +28,7 @@ export interface GlobalChatSessionError {
 
 const globalChatSessionError = <Code extends GlobalChatSessionErrorCode>(
   code: Code,
-  status: 404 | 409 | 502 | 503,
+  status: 400 | 404 | 409 | 502 | 503,
 ) =>
   Schema.Struct({
     code: Schema.Literals([code]),
@@ -47,6 +48,10 @@ export const GlobalChatSessionNotFoundErrorSchema = globalChatSessionError(
 export const GlobalChatSessionArchivedErrorSchema = globalChatSessionError(
   "global_chat_session_archived",
   409,
+);
+export const GlobalChatSessionTitleInvalidErrorSchema = globalChatSessionError(
+  "global_chat_session_title_invalid",
+  400,
 );
 export const GlobalChatSessionTurnInProgressErrorSchema =
   globalChatSessionError("global_chat_session_turn_in_progress", 409);
@@ -84,6 +89,7 @@ export const GlobalChatSessionErrorSchemas = [
   GlobalChatSessionUnavailableErrorSchema,
   GlobalChatSessionNotFoundErrorSchema,
   GlobalChatSessionArchivedErrorSchema,
+  GlobalChatSessionTitleInvalidErrorSchema,
   GlobalChatSessionTurnInProgressErrorSchema,
   GlobalChatSessionRuntimeRevisionConflictErrorSchema,
   GlobalChatSessionRecoveryRequiredErrorSchema,
@@ -120,6 +126,12 @@ export const globalChatSessionErrorBody = (
       return {
         code,
         message: "Archived Global Chat Sessions must be unarchived before continuing.",
+      };
+    case "global_chat_session_title_invalid":
+      return {
+        code,
+        message:
+          "Chat titles cannot be empty and must be 60 characters or fewer on a single line.",
       };
     case "global_chat_session_turn_in_progress":
       return {
