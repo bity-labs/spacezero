@@ -139,7 +139,7 @@ export interface SessionMessage {
 export interface SessionDraftMessage {
   readonly id: SessionMessageId;
   readonly text: string;
-  readonly parts?: readonly SessionMessagePart[];
+  readonly parts: readonly SessionMessagePart[];
 }
 
 export interface SubmitSessionPromptRequest {
@@ -197,7 +197,7 @@ export interface ProjectSessionTurn {
   readonly state: ProjectSessionTurnState;
   readonly userMessageId: SessionMessageId;
   readonly assistantMessageId: SessionMessageId;
-  readonly assistantMessageIds?: readonly SessionMessageId[];
+  readonly assistantMessageIds: readonly SessionMessageId[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel: AgentThinkingLevel;
@@ -457,7 +457,7 @@ export const SessionMessageSchema = Schema.Struct({
 export const SessionDraftMessageSchema = Schema.Struct({
   id: SessionMessageIdSchema,
   text: SessionMessageDraftTextSchema,
-  parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
+  parts: Schema.Array(SessionMessagePartSchema),
 });
 export const SubmitSessionPromptRequestSchema = Schema.Struct({
   commandId: ProjectSessionCommandIdSchema,
@@ -505,7 +505,7 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   state: ProjectSessionTurnStateSchema,
   userMessageId: SessionMessageIdSchema,
   assistantMessageId: SessionMessageIdSchema,
-  assistantMessageIds: Schema.optionalKey(Schema.Array(SessionMessageIdSchema)),
+  assistantMessageIds: Schema.Array(SessionMessageIdSchema),
   providerId: Schema.String.check(
     Schema.isMinLength(1),
     Schema.isMaxLength(128),
@@ -802,7 +802,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
     text: SessionMessageDraftTextSchema,
-    parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
+    parts: Schema.Array(SessionMessagePartSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -812,7 +812,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
     text: CompletedSessionMessageTextSchema,
-    parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
+    parts: Schema.Array(SessionMessagePartSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({

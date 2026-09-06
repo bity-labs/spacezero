@@ -411,57 +411,27 @@ const appendActiveDraft = (
     ...messages.map((message) => message.sequence),
     0,
   );
-  const draftMessages =
-    "draftMessages" in activeTurn && Array.isArray(activeTurn.draftMessages)
-      ? activeTurn.draftMessages
-      : undefined;
-  if (draftMessages !== undefined && draftMessages.length > 0) {
-    const appended = draftMessages
-      .filter(
-        (message) =>
-          !messages.some((existing) => existing.id === message.id) &&
-          (message.text.length > 0 ||
-            ("parts" in message &&
-              Array.isArray(message.parts) &&
-              message.parts.length > 0)),
-      )
-      .map((message, index) =>
-        messageWithParts({
-          id: message.id,
-          role: "assistant",
-          text: message.text,
-          sequence: baseSequence + index + 1,
-          createdAt: activeTurn.updatedAt,
-          turnId: activeTurn.id,
-          ...("parts" in message && Array.isArray(message.parts)
-            ? {
-                parts: message.parts as readonly SavedConversationMessagePart[],
-              }
-            : {}),
-        }),
-      );
-    return [...messages, ...appended];
-  }
-  if (activeTurn.draftText.length === 0) return messages;
-  if (messages.some((message) => message.id === activeTurn.assistantMessageId))
-    return messages;
-  return [
-    ...messages,
-    messageWithParts({
-      id: activeTurn.assistantMessageId,
-      role: "assistant",
-      text: activeTurn.draftText,
-      sequence: baseSequence + 1,
-      createdAt: activeTurn.updatedAt,
-      turnId: activeTurn.id,
-      ...("draftParts" in activeTurn && Array.isArray(activeTurn.draftParts)
-        ? {
-            parts:
-              activeTurn.draftParts as readonly SavedConversationMessagePart[],
-          }
-        : {}),
-    }),
-  ];
+  // draftMessages is always present while a turn is active; there is no
+  // single-draft fallback shape.
+  const draftMessages = activeTurn.draftMessages ?? [];
+  const appended = draftMessages
+    .filter(
+      (message) =>
+        !messages.some((existing) => existing.id === message.id) &&
+        (message.text.length > 0 || message.parts.length > 0),
+    )
+    .map((message, index) =>
+      messageWithParts({
+        id: message.id,
+        role: "assistant",
+        text: message.text,
+        sequence: baseSequence + index + 1,
+        createdAt: activeTurn.updatedAt,
+        turnId: activeTurn.id,
+        parts: message.parts as readonly SavedConversationMessagePart[],
+      }),
+    );
+  return [...messages, ...appended];
 };
 
 const unresolvedPendingMessages = (

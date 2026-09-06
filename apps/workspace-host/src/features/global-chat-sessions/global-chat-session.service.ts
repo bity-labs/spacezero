@@ -181,6 +181,7 @@ export const createGlobalChatSessionService = (options: {
       readonly turn: {
         readonly id: string;
         readonly assistantMessageId: string;
+        readonly assistantMessageIds: readonly string[];
         readonly providerId: string;
         readonly modelId: string;
         readonly thinkingLevel:

@@ -210,6 +210,7 @@ describe("Project Session schemas", () => {
       state: "running" as const,
       userMessageId: messageId,
       assistantMessageId: turnId,
+      assistantMessageIds: [turnId],
       providerId: "anthropic",
       modelId: "claude-sonnet-4-5",
       thinkingLevel: "off" as const,
@@ -346,6 +347,15 @@ describe("Project Session schemas", () => {
         turnId,
         messageId: turnId,
         text: "Partial draft",
+        parts: [
+          {
+            id: `${turnId}:text:1`,
+            type: "text",
+            order: 1,
+            text: "Partial draft",
+            turnId,
+          },
+        ],
         timestamp: "2026-01-01T00:01:01.000Z",
       }),
     ).toMatchObject({ type: "AgentMessageCheckpointedV1" });
@@ -381,6 +391,15 @@ describe("Project Session schemas", () => {
         turnId,
         messageId: turnId,
         text: "Echo: Build the wine list view",
+        parts: [
+          {
+            id: `${turnId}:text:1`,
+            type: "text",
+            order: 1,
+            text: "Echo: Build the wine list view",
+            turnId,
+          },
+        ],
         timestamp: "2026-01-01T00:01:01.000Z",
       }),
     ).toMatchObject({ type: "AgentMessageCompletedV1" });

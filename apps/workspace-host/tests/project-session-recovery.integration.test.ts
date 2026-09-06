@@ -219,6 +219,15 @@ describe("Project Session startup recovery", () => {
         turnId: completedTurnId,
         messageId: completedAgentMessageId,
         text: completedAnswer,
+        parts: [
+          {
+            id: `${completedAgentMessageId}:text:1`,
+            type: "text",
+            order: 1,
+            text: completedAnswer,
+            turnId: completedTurnId,
+          },
+        ],
         timestamp: now,
       }),
       now,
@@ -247,7 +256,7 @@ describe("Project Session startup recovery", () => {
       now,
     );
     db.prepare(
-      "INSERT INTO chat_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (?, ?, 'user', ?, 1, ?, ?), (?, ?, 'assistant', ?, 3, ?, ?), (?, ?, 'user', ?, 4, ?, ?)",
+      "INSERT INTO chat_session_messages (session_id, message_id, role, text, content_parts_json, sequence, turn_id, created_at) VALUES (?, ?, 'user', ?, NULL, 1, ?, ?), (?, ?, 'assistant', ?, json_array(json_object('type', 'text', 'order', 1, 'text', ?)), 3, ?, ?), (?, ?, 'user', ?, NULL, 4, ?, ?)",
     ).run(
       sessionId,
       completedUserMessageId,
@@ -256,6 +265,7 @@ describe("Project Session startup recovery", () => {
       now,
       sessionId,
       completedAgentMessageId,
+      completedAnswer,
       completedAnswer,
       completedTurnId,
       now,
@@ -266,12 +276,13 @@ describe("Project Session startup recovery", () => {
       now,
     );
     db.prepare(
-      "INSERT INTO chat_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, state, draft_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?), (?, ?, ?, ?, ?, 'running', '', ?, ?)",
+      "INSERT INTO chat_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, assistant_message_ids_json, state, draft_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, json_array(?), 'completed', ?, ?, ?), (?, ?, ?, ?, ?, json_array(?), 'running', '', ?, ?)",
     ).run(
       sessionId,
       completedTurnId,
       completedCommandId,
       completedUserMessageId,
+      completedAgentMessageId,
       completedAgentMessageId,
       completedAnswer,
       now,
@@ -280,6 +291,7 @@ describe("Project Session startup recovery", () => {
       turnId,
       commandId,
       userMessageId,
+      pendingAgentMessageId,
       pendingAgentMessageId,
       now,
       now,
