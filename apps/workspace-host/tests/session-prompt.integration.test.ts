@@ -1465,9 +1465,7 @@ describe("Session prompt Host protocol", () => {
       "ProjectSessionReadyV1",
       "UserMessageSubmittedV1",
       "AgentTurnStartedV1",
-      "AgentMessageCheckpointedV1",
       "AgentToolCallStartedV1",
-      "AgentMessageCheckpointedV1",
       "AgentToolCallCompletedV1",
       "AgentMessageCompletedV1",
     ]);
