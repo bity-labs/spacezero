@@ -107,6 +107,7 @@ interface TurnRow {
     | "recovery_required";
   readonly draft_text: string;
   readonly draft_parts_json: string | null;
+  readonly draft_messages_json: string | null;
   readonly failure_reason: string | null;
   readonly created_at: string;
   readonly updated_at: string;
@@ -236,6 +237,12 @@ const toSummary = (row: SessionRow): GlobalChatSessionSummary => ({
   lastSequence: row.last_sequence,
 });
 
+interface StoredDraftMessage {
+  readonly id: string;
+  readonly text: string;
+  readonly parts?: readonly StoredConversationPart[];
+}
+
 type StoredConversationPart = GlobalChatSessionMessagePart extends infer Part
   ? Part extends unknown
     ? Omit<Part, "id" | "turnId">
@@ -305,41 +312,53 @@ const hydrateParts = (input: {
     : parts.sort((l, r) => l.order - r.order);
 };
 
+const storedParts = (
+  parts: readonly StoredConversationPart[],
+): readonly StoredConversationPart[] =>
+  parts.map((part) => {
+    if (part.type === "tool-call")
+      return {
+        type: part.type,
+        order: part.order,
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        status: part.status,
+        ...(part.arguments === undefined ? {} : { arguments: part.arguments }),
+        ...(part.progress === undefined ? {} : { progress: part.progress }),
+        ...(part.result === undefined ? {} : { result: part.result }),
+        ...(part.safety === undefined ? {} : { safety: part.safety }),
+        ...(part.approvalStatus === undefined
+          ? {}
+          : { approvalStatus: part.approvalStatus }),
+        ...(part.approvalReason === undefined
+          ? {}
+          : { approvalReason: part.approvalReason }),
+      };
+    return {
+      type: part.type,
+      order: part.order,
+      text: part.text,
+    };
+  });
+
 const storedPartsJson = (
   parts: readonly StoredConversationPart[] | undefined,
 ): string | null =>
-  parts === undefined
+  parts === undefined ? null : JSON.stringify(storedParts(parts));
+
+const storedDraftMessagesJson = (
+  messages: readonly StoredDraftMessage[] | undefined,
+): string | null =>
+  messages === undefined
     ? null
     : JSON.stringify(
-        parts.map((part) => {
-          if (part.type === "tool-call")
-            return {
-              type: part.type,
-              order: part.order,
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              status: part.status,
-              ...(part.arguments === undefined
-                ? {}
-                : { arguments: part.arguments }),
-              ...(part.progress === undefined
-                ? {}
-                : { progress: part.progress }),
-              ...(part.result === undefined ? {} : { result: part.result }),
-              ...(part.safety === undefined ? {} : { safety: part.safety }),
-              ...(part.approvalStatus === undefined
-                ? {}
-                : { approvalStatus: part.approvalStatus }),
-              ...(part.approvalReason === undefined
-                ? {}
-                : { approvalReason: part.approvalReason }),
-            };
-          return {
-            type: part.type,
-            order: part.order,
-            text: part.text,
-          };
-        }),
+        messages.map((message) => ({
+          id: message.id,
+          text: message.text,
+          ...(message.parts === undefined
+            ? {}
+            : { parts: storedParts(message.parts) }),
+        })),
       );
 
 const toMessage = (row: MessageRow): GlobalChatSessionMessage => ({
@@ -420,10 +439,62 @@ const assistantMessageIdsFromTurn = (row: TurnRow): readonly string[] => {
   return parsed;
 };
 
+const draftMessagesFromTurn = (
+  row: TurnRow,
+):
+  | readonly {
+      readonly id: string;
+      readonly text: string;
+      readonly parts?: readonly GlobalChatSessionMessagePart[];
+    }[]
+  | undefined => {
+  if (row.draft_messages_json === null) return undefined;
+  const parsed = JSON.parse(row.draft_messages_json) as unknown;
+  if (!Array.isArray(parsed)) return undefined;
+  const messages = parsed.flatMap(
+    (
+      message,
+    ): {
+      readonly id: string;
+      readonly text: string;
+      readonly parts?: readonly GlobalChatSessionMessagePart[];
+    }[] => {
+      if (
+        typeof message !== "object" ||
+        message === null ||
+        !("id" in message) ||
+        typeof message.id !== "string" ||
+        message.id.length === 0 ||
+        !("text" in message) ||
+        typeof message.text !== "string"
+      )
+        return [];
+      const partsJson =
+        "parts" in message && Array.isArray(message.parts)
+          ? JSON.stringify(message.parts)
+          : null;
+      return [
+        {
+          id: message.id,
+          text: message.text,
+          parts: hydrateParts({
+            messageId: message.id,
+            turnId: row.turn_id,
+            text: message.text,
+            partsJson,
+          }),
+        },
+      ];
+    },
+  );
+  return messages.length === 0 ? undefined : messages;
+};
+
 const toTurn = (row: TurnRow): GlobalChatSessionTurn => {
   const details = row.failure_reason
     ? failureDetails(row.failure_reason as GlobalChatSessionTurnFailureReason)
     : undefined;
+  const draftMessages = draftMessagesFromTurn(row);
   return {
     id: row.turn_id,
     commandId: row.command_id,
@@ -445,6 +516,7 @@ const toTurn = (row: TurnRow): GlobalChatSessionTurn => {
             partsJson: row.draft_parts_json,
           }),
         }),
+    ...(draftMessages === undefined ? {} : { draftMessages }),
     ...(row.failure_reason === null
       ? {}
       : { failureReason: row.failure_reason }),
@@ -1360,7 +1432,7 @@ export const createGlobalChatSessionRepository = (options: {
             }
             const assistantMessageIds = messages.map((message) => message.id);
             const draftPartsJson = storedPartsJson(input.parts);
-            yield* sql`UPDATE chat_session_turns SET state = 'completed', draft_text = ${input.text}, draft_parts_json = ${draftPartsJson}, assistant_message_ids_json = ${JSON.stringify(assistantMessageIds)}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            yield* sql`UPDATE chat_session_turns SET state = 'completed', draft_text = ${input.text}, draft_parts_json = ${draftPartsJson}, draft_messages_json = NULL, assistant_message_ids_json = ${JSON.stringify(assistantMessageIds)}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
             yield* sql`UPDATE chat_session_command_receipts SET status = 'succeeded', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
             const userRows = yield* getMessageById(
@@ -1498,6 +1570,7 @@ export const createGlobalChatSessionRepository = (options: {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly StoredConversationPart[];
+    readonly messages?: readonly StoredDraftMessage[];
   }): Promise<void> => {
     await runSql(
       options.databasePath,
@@ -1511,31 +1584,43 @@ export const createGlobalChatSessionRepository = (options: {
             if (!rows[0] || !turnRows[0]) return;
             if (!["queued", "running"].includes(turnRows[0].state)) return;
             const now = new Date().toISOString();
-            const sequence = rows[0].last_sequence + 1;
-            const contentPartsJson = storedPartsJson(input.parts);
-            const eventParts = hydrateParts({
-              messageId: turnRows[0].assistant_message_id,
-              turnId: input.turnId,
-              text: input.text,
-              partsJson: contentPartsJson,
-            });
-            yield* appendEvent({
-              sql,
-              sessionId: input.sessionId,
-              sequence,
-              payload: {
-                type: "GlobalChatAgentMessageCheckpointedV1",
-                version: 1,
-                sessionId: input.sessionId,
-                turnId: input.turnId,
-                messageId: turnRows[0].assistant_message_id,
+            const messages = input.messages ?? [
+              {
+                id: turnRows[0].assistant_message_id,
                 text: input.text,
-                parts: eventParts,
-                timestamp: now,
+                ...(input.parts === undefined ? {} : { parts: input.parts }),
               },
-              createdAt: now,
-            });
-            yield* sql`UPDATE chat_session_turns SET draft_text = ${input.text}, draft_parts_json = ${contentPartsJson}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            ];
+            const contentPartsJson = storedPartsJson(input.parts);
+            const draftMessagesJson = storedDraftMessagesJson(messages);
+            let sequence = rows[0].last_sequence;
+            for (const message of messages) {
+              sequence += 1;
+              const eventPartsJson = storedPartsJson(message.parts);
+              const eventParts = hydrateParts({
+                messageId: message.id,
+                turnId: input.turnId,
+                text: message.text,
+                partsJson: eventPartsJson,
+              });
+              yield* appendEvent({
+                sql,
+                sessionId: input.sessionId,
+                sequence,
+                payload: {
+                  type: "GlobalChatAgentMessageCheckpointedV1",
+                  version: 1,
+                  sessionId: input.sessionId,
+                  turnId: input.turnId,
+                  messageId: message.id,
+                  text: message.text,
+                  parts: eventParts,
+                  timestamp: now,
+                },
+                createdAt: now,
+              });
+            }
+            yield* sql`UPDATE chat_session_turns SET draft_text = ${input.text}, draft_parts_json = ${contentPartsJson}, draft_messages_json = ${draftMessagesJson}, assistant_message_ids_json = ${JSON.stringify(messages.map((message) => message.id))}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
           }),
         );

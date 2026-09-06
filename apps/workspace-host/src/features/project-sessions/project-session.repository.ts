@@ -131,6 +131,7 @@ interface TurnRow {
     | "recovery_required";
   readonly draft_text: string;
   readonly draft_parts_json: string | null;
+  readonly draft_messages_json: string | null;
   readonly failure_reason: string | null;
   readonly created_at: string;
   readonly updated_at: string;
@@ -262,6 +263,12 @@ const toSummary = (row: SessionRow): ProjectSessionSummary => ({
   lastSequence: row.last_sequence,
 });
 
+interface StoredDraftMessage {
+  readonly id: string;
+  readonly text: string;
+  readonly parts?: readonly StoredConversationPart[];
+}
+
 type StoredConversationPart = SessionMessagePart extends infer Part
   ? Part extends unknown
     ? Omit<Part, "id" | "turnId">
@@ -331,41 +338,53 @@ const hydrateParts = (input: {
     : parts.sort((l, r) => l.order - r.order);
 };
 
+const storedParts = (
+  parts: readonly StoredConversationPart[],
+): readonly StoredConversationPart[] =>
+  parts.map((part) => {
+    if (part.type === "tool-call")
+      return {
+        type: part.type,
+        order: part.order,
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        status: part.status,
+        ...(part.arguments === undefined ? {} : { arguments: part.arguments }),
+        ...(part.progress === undefined ? {} : { progress: part.progress }),
+        ...(part.result === undefined ? {} : { result: part.result }),
+        ...(part.safety === undefined ? {} : { safety: part.safety }),
+        ...(part.approvalStatus === undefined
+          ? {}
+          : { approvalStatus: part.approvalStatus }),
+        ...(part.approvalReason === undefined
+          ? {}
+          : { approvalReason: part.approvalReason }),
+      };
+    return {
+      type: part.type,
+      order: part.order,
+      text: part.text,
+    };
+  });
+
 const storedPartsJson = (
   parts: readonly StoredConversationPart[] | undefined,
 ): string | null =>
-  parts === undefined
+  parts === undefined ? null : JSON.stringify(storedParts(parts));
+
+const storedDraftMessagesJson = (
+  messages: readonly StoredDraftMessage[] | undefined,
+): string | null =>
+  messages === undefined
     ? null
     : JSON.stringify(
-        parts.map((part) => {
-          if (part.type === "tool-call")
-            return {
-              type: part.type,
-              order: part.order,
-              toolCallId: part.toolCallId,
-              toolName: part.toolName,
-              status: part.status,
-              ...(part.arguments === undefined
-                ? {}
-                : { arguments: part.arguments }),
-              ...(part.progress === undefined
-                ? {}
-                : { progress: part.progress }),
-              ...(part.result === undefined ? {} : { result: part.result }),
-              ...(part.safety === undefined ? {} : { safety: part.safety }),
-              ...(part.approvalStatus === undefined
-                ? {}
-                : { approvalStatus: part.approvalStatus }),
-              ...(part.approvalReason === undefined
-                ? {}
-                : { approvalReason: part.approvalReason }),
-            };
-          return {
-            type: part.type,
-            order: part.order,
-            text: part.text,
-          };
-        }),
+        messages.map((message) => ({
+          id: message.id,
+          text: message.text,
+          ...(message.parts === undefined
+            ? {}
+            : { parts: storedParts(message.parts) }),
+        })),
       );
 
 const toMessage = (row: MessageRow): SessionMessage => ({
@@ -490,31 +509,86 @@ const assistantMessageIdsFromTurn = (row: TurnRow): readonly string[] => {
   return parsed;
 };
 
-const toTurn = (row: TurnRow): ProjectSessionTurn => ({
-  id: row.turn_id,
-  commandId: row.command_id,
-  state: row.state,
-  userMessageId: row.user_message_id,
-  assistantMessageId: row.assistant_message_id,
-  assistantMessageIds: assistantMessageIdsFromTurn(row),
-  providerId: row.provider_id,
-  modelId: row.model_id,
-  thinkingLevel: row.thinking_level,
-  draftText: row.draft_text,
-  ...(row.draft_parts_json === null
-    ? {}
-    : {
-        draftParts: hydrateParts({
-          messageId: row.assistant_message_id,
-          turnId: row.turn_id,
-          text: row.draft_text,
-          partsJson: row.draft_parts_json,
+const draftMessagesFromTurn = (
+  row: TurnRow,
+):
+  | readonly {
+      readonly id: string;
+      readonly text: string;
+      readonly parts?: readonly SessionMessagePart[];
+    }[]
+  | undefined => {
+  if (row.draft_messages_json === null) return undefined;
+  const parsed = JSON.parse(row.draft_messages_json) as unknown;
+  if (!Array.isArray(parsed)) return undefined;
+  const messages = parsed.flatMap(
+    (
+      message,
+    ): {
+      readonly id: string;
+      readonly text: string;
+      readonly parts?: readonly SessionMessagePart[];
+    }[] => {
+      if (
+        typeof message !== "object" ||
+        message === null ||
+        !("id" in message) ||
+        typeof message.id !== "string" ||
+        message.id.length === 0 ||
+        !("text" in message) ||
+        typeof message.text !== "string"
+      )
+        return [];
+      const partsJson =
+        "parts" in message && Array.isArray(message.parts)
+          ? JSON.stringify(message.parts)
+          : null;
+      return [
+        {
+          id: message.id,
+          text: message.text,
+          parts: hydrateParts({
+            messageId: message.id,
+            turnId: row.turn_id,
+            text: message.text,
+            partsJson,
+          }),
+        },
+      ];
+    },
+  );
+  return messages.length === 0 ? undefined : messages;
+};
+
+const toTurn = (row: TurnRow): ProjectSessionTurn => {
+  const draftMessages = draftMessagesFromTurn(row);
+  return {
+    id: row.turn_id,
+    commandId: row.command_id,
+    state: row.state,
+    userMessageId: row.user_message_id,
+    assistantMessageId: row.assistant_message_id,
+    assistantMessageIds: assistantMessageIdsFromTurn(row),
+    providerId: row.provider_id,
+    modelId: row.model_id,
+    thinkingLevel: row.thinking_level,
+    draftText: row.draft_text,
+    ...(row.draft_parts_json === null
+      ? {}
+      : {
+          draftParts: hydrateParts({
+            messageId: row.assistant_message_id,
+            turnId: row.turn_id,
+            text: row.draft_text,
+            partsJson: row.draft_parts_json,
+          }),
         }),
-      }),
-  ...(failureDetails(row.failure_reason) ?? {}),
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+    ...(draftMessages === undefined ? {} : { draftMessages }),
+    ...(failureDetails(row.failure_reason) ?? {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
 
 const toFollowUp = (row: FollowUpRow): ProjectSessionFollowUp => ({
   id: row.follow_up_id,
@@ -1727,7 +1801,7 @@ export const createProjectSessionRepository = (options: {
               }
               const assistantMessageIds = messages.map((message) => message.id);
               const draftPartsJson = storedPartsJson(input.parts);
-              yield* sql`UPDATE chat_session_turns SET state = 'completed', draft_text = ${input.text}, draft_parts_json = ${draftPartsJson}, assistant_message_ids_json = ${JSON.stringify(assistantMessageIds)}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+              yield* sql`UPDATE chat_session_turns SET state = 'completed', draft_text = ${input.text}, draft_parts_json = ${draftPartsJson}, draft_messages_json = NULL, assistant_message_ids_json = ${JSON.stringify(assistantMessageIds)}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
               yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${agentSequence} WHERE session_id = ${input.sessionId}`;
               yield* sql`UPDATE chat_session_command_receipts SET status = 'succeeded', committed_sequence = ${agentSequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
 
@@ -1881,6 +1955,7 @@ export const createProjectSessionRepository = (options: {
       readonly turnId: string;
       readonly text: string;
       readonly parts?: readonly StoredConversationPart[];
+      readonly messages?: readonly StoredDraftMessage[];
     }): Promise<void> => {
       await runSql(
         options.databasePath,
@@ -1897,31 +1972,43 @@ export const createProjectSessionRepository = (options: {
                 throw new ProjectSessionServiceError("turn_not_found");
               if (!["queued", "running"].includes(turnRows[0].state)) return;
               const now = new Date().toISOString();
-              const sequence = rows[0].last_sequence + 1;
-              const contentPartsJson = storedPartsJson(input.parts);
-              const eventParts = hydrateParts({
-                messageId: turnRows[0].assistant_message_id,
-                turnId: input.turnId,
-                text: input.text,
-                partsJson: contentPartsJson,
-              });
-              yield* appendEvent({
-                sql,
-                sessionId: input.sessionId,
-                sequence,
-                payload: {
-                  type: "AgentMessageCheckpointedV1",
-                  version: 1,
-                  sessionId: input.sessionId,
-                  turnId: input.turnId,
-                  messageId: turnRows[0].assistant_message_id,
+              const messages = input.messages ?? [
+                {
+                  id: turnRows[0].assistant_message_id,
                   text: input.text,
-                  parts: eventParts,
-                  timestamp: now,
+                  ...(input.parts === undefined ? {} : { parts: input.parts }),
                 },
-                createdAt: now,
-              });
-              yield* sql`UPDATE chat_session_turns SET draft_text = ${input.text}, draft_parts_json = ${contentPartsJson}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+              ];
+              const contentPartsJson = storedPartsJson(input.parts);
+              const draftMessagesJson = storedDraftMessagesJson(messages);
+              let sequence = rows[0].last_sequence;
+              for (const message of messages) {
+                sequence += 1;
+                const eventPartsJson = storedPartsJson(message.parts);
+                const eventParts = hydrateParts({
+                  messageId: message.id,
+                  turnId: input.turnId,
+                  text: message.text,
+                  partsJson: eventPartsJson,
+                });
+                yield* appendEvent({
+                  sql,
+                  sessionId: input.sessionId,
+                  sequence,
+                  payload: {
+                    type: "AgentMessageCheckpointedV1",
+                    version: 1,
+                    sessionId: input.sessionId,
+                    turnId: input.turnId,
+                    messageId: message.id,
+                    text: message.text,
+                    parts: eventParts,
+                    timestamp: now,
+                  },
+                  createdAt: now,
+                });
+              }
+              yield* sql`UPDATE chat_session_turns SET draft_text = ${input.text}, draft_parts_json = ${contentPartsJson}, draft_messages_json = ${draftMessagesJson}, assistant_message_ids_json = ${JSON.stringify(messages.map((message) => message.id))}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
               yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
             }),
           );
