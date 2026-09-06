@@ -45,9 +45,9 @@ function RootRoute(): ReactElement {
 
   const isAgentCapabilitiesRoute = pathname === "/agent-capabilities";
   const isProjectSessionRoute = pathname.startsWith("/project-sessions/");
-  const isGlobalChatSessionRoute = pathname.startsWith(
-    "/global-chat-sessions/",
-  );
+  const isGlobalChatDraftRoute = pathname === "/global-chat-sessions/new";
+  const isGlobalChatSessionRoute =
+    pathname.startsWith("/global-chat-sessions/") && !isGlobalChatDraftRoute;
   const activeChatId = isGlobalChatSessionRoute
     ? decodeURIComponent(pathname.split("/")[2] ?? "")
     : undefined;
@@ -58,11 +58,13 @@ function RootRoute(): ReactElement {
       : activeView;
   const titlebarLabel = isAgentCapabilitiesRoute
     ? t("workspace.agentCapabilities")
-    : isGlobalChatSessionRoute
-      ? t("conversations.globalChatSession")
-      : isProjectSessionRoute
-        ? t("conversations.projectSession")
-        : t("workspace.title");
+    : isGlobalChatDraftRoute
+      ? t("workspace.newChat")
+      : isGlobalChatSessionRoute
+        ? t("conversations.globalChatSession")
+        : isProjectSessionRoute
+          ? t("conversations.projectSession")
+          : t("workspace.title");
 
   useEffect(() => {
     const client = createGlobalChatSessionClient({
@@ -131,7 +133,10 @@ function RootRoute(): ReactElement {
             });
           }}
           onToggleChats={() => setChatsExpanded((expanded) => !expanded)}
-          onNewChat={() => undefined}
+          onNewChat={() => {
+            setActiveView("workspace");
+            void navigate({ to: "/global-chat-sessions/new" });
+          }}
           onAllChats={() => undefined}
           onToggleProjects={() => setProjectsExpanded((expanded) => !expanded)}
           onFilterProjects={() => undefined}

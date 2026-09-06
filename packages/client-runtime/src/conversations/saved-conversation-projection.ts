@@ -16,6 +16,11 @@ import type { GlobalChatSessionClient } from "../global-chat-sessions/global-cha
 import type { ProjectSessionClient } from "../project-sessions/project-session-client.js";
 
 export type SavedConversationKind = "project" | "global";
+/**
+ * Sentinel session id for New Chat draft stores. Drafts are not durable
+ * sessions, so the Host is never asked for draft state or events.
+ */
+export const globalChatDraftSessionId = "draft";
 export type SavedConversationStatus =
   "idle" | "loading" | "ready" | "empty" | "unavailable" | "error";
 export type SavedConversationConnectionStatus =
@@ -319,8 +324,13 @@ const initialSnapshot = (
   actions: actions({ canSend, send: "available", canStop: false }),
 });
 
-const toErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "conversation unavailable";
+const toErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  // Typed Host Protocol errors are tagged records with code/message fields.
+  if (isRecord(error) && typeof error.message === "string" && error.message)
+    return error.message;
+  return "conversation unavailable";
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -1120,7 +1130,12 @@ export const createSavedConversationStore = ({
 
   const resubscribe = (after: number): void => {
     subscription?.cancel();
-    if (!subscribeEvents || disposed || currentSessionId === "") return;
+    if (!subscribeEvents || disposed) return;
+    if (
+      currentSessionId === "" ||
+      currentSessionId === globalChatDraftSessionId
+    )
+      return;
     const subscriptionSessionId = currentSessionId;
     subscription = subscribeEvents({
       sessionId: subscriptionSessionId,
@@ -1733,7 +1748,7 @@ export const createGlobalChatDraftConversationStore = ({
   const optionalClient = client as Partial<GlobalChatSessionClient>;
   return createSavedConversationStore({
     kind: "global",
-    sessionId: "draft",
+    sessionId: globalChatDraftSessionId,
     load: async () => ({ title: "New chat", lastSequence: 0, messages: [] }),
     createWithFirstPrompt: ({ prompt, commandId }) =>
       client.createWithFirstPrompt(prompt, commandId),
