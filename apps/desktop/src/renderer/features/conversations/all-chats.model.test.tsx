@@ -67,24 +67,47 @@ describe("selectUnarchivedSessions", () => {
 });
 
 describe("selectArchivedSessions", () => {
-  it("returns only archived sessions sorted by last updated descending", () => {
+  it("returns only archived sessions sorted by archived time descending", () => {
     const sessions = [
       summary({
         id: "older-archived",
         archived: true,
-        updatedAt: "2026-01-02T00:00:00.000Z",
+        updatedAt: "2026-01-05T00:00:00.000Z",
+        archivedAt: "2026-01-02T00:00:00.000Z",
       }),
       summary({ id: "active" }),
       summary({
         id: "newer-archived",
         archived: true,
-        updatedAt: "2026-01-05T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: "2026-01-06T00:00:00.000Z",
       }),
     ];
 
     expect(
       selectArchivedSessions(sessions).map((session) => session.id),
     ).toEqual(["newer-archived", "older-archived"]);
+  });
+
+  it("keeps archived-time ties ordered by last updated descending", () => {
+    const sessions = [
+      summary({
+        id: "tie-older",
+        archived: true,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        archivedAt: "2026-01-06T00:00:00.000Z",
+      }),
+      summary({
+        id: "tie-newer",
+        archived: true,
+        updatedAt: "2026-01-05T00:00:00.000Z",
+        archivedAt: "2026-01-06T00:00:00.000Z",
+      }),
+    ];
+
+    expect(
+      selectArchivedSessions(sessions).map((session) => session.id),
+    ).toEqual(["tie-newer", "tie-older"]);
   });
 
   it("returns an empty list when nothing is archived", () => {

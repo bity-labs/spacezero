@@ -784,6 +784,159 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("archives the active Global Chat from the header, keeps it open read-only, and unarchives from the header", async () => {
+    window.location.hash = `#/global-chat-sessions/${globalChatSessionId}`;
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    let archived = false;
+    const archiveRequests: Request[] = [];
+    const sessionSummary = () => ({
+      id: globalChatSessionId,
+      title: "Global prompt",
+      archived,
+      ...(archived ? { archivedAt: timestamp } : {}),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastSequence: 2,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        const parsed = new URL(request.url);
+        if (parsed.pathname.endsWith("/archive") && request.method === "POST")
+          archiveRequests.push(request);
+        if (parsed.pathname === "/v1/connection")
+          return json({
+            instanceId: descriptor.instanceId,
+            protocolVersion: descriptor.protocolVersion,
+            status: "ready",
+          });
+        if (parsed.pathname === "/v1/events") return hostConnectedStream();
+        if (parsed.pathname === "/v1/global-chat-sessions" &&
+          request.method === "GET")
+          return json({ sessions: [sessionSummary()] });
+        if (
+          parsed.pathname ===
+            `/v1/global-chat-sessions/${globalChatSessionId}/archive` &&
+          request.method === "POST"
+        ) {
+          archived = true;
+          return json({ session: sessionSummary() });
+        }
+        if (
+          parsed.pathname ===
+            `/v1/global-chat-sessions/${globalChatSessionId}/unarchive` &&
+          request.method === "POST"
+        ) {
+          archived = false;
+          return json({ session: sessionSummary() });
+        }
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/messages`
+        )
+          return json({
+            session: sessionSummary(),
+            messages: [
+              {
+                id: "66666666-6666-4666-8666-666666666666",
+                role: "assistant",
+                text: "Global saved answer",
+                sequence: 2,
+                createdAt: timestamp,
+              },
+            ],
+          });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/follow-ups`
+        )
+          return json({ session: sessionSummary(), followUps: [] });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/events`
+        )
+          return new Response(
+            new ReadableStream({
+              start() {
+                // Never closes during the test.
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    render(<App />);
+
+    const surface = await screen.findByLabelText(
+      "Global Chat Session conversation",
+    );
+    const composer = await screen.findByRole("textbox", { name: "Message" });
+    expect(composer).toBeEnabled();
+    expect(
+      within(surface).queryByTestId("global-chat-session-archived-banner"),
+    ).not.toBeInTheDocument();
+    // The chat is reachable from the sidebar recent list before archiving.
+    expect(
+      screen.getByRole("button", { name: "Global prompt" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      within(surface).getByRole("button", { name: "Archive" }),
+    );
+
+    const archiveRequest = await waitFor(() => {
+      const request = archiveRequests.at(-1);
+      if (!request) throw new Error("archive request missing");
+      return request;
+    });
+    expect(archiveRequest.method).toBe("POST");
+    expect(await archiveRequest.json()).toEqual({
+      commandId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+      ),
+    });
+
+    // The chat stays open in read-only archived state with an unarchive
+    // action, and the sidebar recent list drops it.
+    expect(
+      await screen.findByTestId("global-chat-session-archived-banner"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Unarchive to continue" }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Global prompt" }),
+      ).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Unarchive to continue" }),
+    );
+
+    // Unarchiving keeps the same chat open, re-enables the composer, and
+    // returns it to the sidebar recent list.
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    });
+    expect(
+      screen.queryByTestId("global-chat-session-archived-banner"),
+    ).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Global prompt" }),
+    ).toBeInTheDocument();
+  });
+
   it("opens the add capability dialog and toggles row management actions", async () => {
     render(<App />);
 
