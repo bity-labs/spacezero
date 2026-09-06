@@ -131,24 +131,15 @@ export function WorkspaceSidebar({
                   >
                     <span className="truncate">{chat.title}</span>
                   </SidebarMenuButton>
+                  <SidebarMenuAction
+                    aria-label={t("workspace.archive")}
+                    className="text-muted-foreground"
+                    disabled
+                  >
+                    <Archive aria-hidden="true" />
+                  </SidebarMenuAction>
                 </SidebarMenuItem>
               ))}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => {
-                    onSelectChat("fake-archived");
-                  }}
-                >
-                  <span className="truncate">Old conversation</span>
-                </SidebarMenuButton>
-                <SidebarMenuAction
-                  aria-label={t("workspace.archive")}
-                  className="text-muted-foreground"
-                  onClick={() => undefined}
-                >
-                  <Archive aria-hidden="true" />
-                </SidebarMenuAction>
-              </SidebarMenuItem>
             </SidebarMenu>
           </div>
         ) : null}

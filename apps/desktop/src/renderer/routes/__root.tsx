@@ -17,6 +17,7 @@ import {
   type WorkspaceSidebarView,
 } from "../components/workspace-sidebar";
 import { useSidebarResize } from "../hooks/use-sidebar-resize";
+import { selectRecentUnarchivedChats } from "../features/conversations/recent-chats.model.js";
 
 export const Route = createRootRoute({
   component: RootRoute,
@@ -46,8 +47,13 @@ function RootRoute(): ReactElement {
   const isAgentCapabilitiesRoute = pathname === "/agent-capabilities";
   const isProjectSessionRoute = pathname.startsWith("/project-sessions/");
   const isGlobalChatDraftRoute = pathname === "/global-chat-sessions/new";
+  const isGlobalChatsIndexRoute =
+    pathname === "/global-chat-sessions" ||
+    pathname === "/global-chat-sessions/";
   const isGlobalChatSessionRoute =
-    pathname.startsWith("/global-chat-sessions/") && !isGlobalChatDraftRoute;
+    pathname.startsWith("/global-chat-sessions/") &&
+    !isGlobalChatDraftRoute &&
+    !isGlobalChatsIndexRoute;
   const activeChatId = isGlobalChatSessionRoute
     ? decodeURIComponent(pathname.split("/")[2] ?? "")
     : undefined;
@@ -60,11 +66,13 @@ function RootRoute(): ReactElement {
     ? t("workspace.agentCapabilities")
     : isGlobalChatDraftRoute
       ? t("workspace.newChat")
-      : isGlobalChatSessionRoute
-        ? t("conversations.globalChatSession")
-        : isProjectSessionRoute
-          ? t("conversations.projectSession")
-          : t("workspace.title");
+      : isGlobalChatsIndexRoute
+        ? t("workspace.allChats")
+        : isGlobalChatSessionRoute
+          ? t("conversations.globalChatSession")
+          : isProjectSessionRoute
+            ? t("conversations.projectSession")
+            : t("workspace.title");
 
   useEffect(() => {
     const client = createGlobalChatSessionClient({
@@ -75,9 +83,7 @@ function RootRoute(): ReactElement {
       .listGlobalChatSessions()
       .then((sessions) => {
         if (cancelled) return;
-        setChats(
-          [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-        );
+        setChats(selectRecentUnarchivedChats(sessions));
       })
       .catch(() => undefined);
     return () => {
@@ -137,7 +143,10 @@ function RootRoute(): ReactElement {
             setActiveView("workspace");
             void navigate({ to: "/global-chat-sessions/new" });
           }}
-          onAllChats={() => undefined}
+          onAllChats={() => {
+            setActiveView("workspace");
+            void navigate({ to: "/global-chat-sessions" });
+          }}
           onToggleProjects={() => setProjectsExpanded((expanded) => !expanded)}
           onFilterProjects={() => undefined}
           onAddProject={() => undefined}
