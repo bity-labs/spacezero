@@ -2361,6 +2361,103 @@ describe("saved conversation projection", () => {
     });
   });
 
+  it("loads an existing Global Chat Session by stable ID and appends a later prompt to the same Session", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    const submitPrompt = vi.fn(
+      async (sessionId: string, prompt: string, commandId: string) => ({
+        session: {
+          ...globalSession,
+          id: sessionId,
+          updatedAt: "2026-01-01T00:00:06.000Z",
+          lastSequence: 7,
+        },
+        userMessage: {
+          id: "existing-session-user-2",
+          role: "user" as const,
+          text: prompt,
+          sequence: 6,
+          createdAt: "2026-01-01T00:00:05.000Z",
+          commandId,
+        },
+        turn: {
+          id: "existing-session-turn-2",
+          commandId,
+          state: "running" as const,
+          userMessageId: "existing-session-user-2",
+          assistantMessageId: "existing-session-assistant-2",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          updatedAt: "2026-01-01T00:00:05.000Z",
+        },
+      }),
+    );
+    const client = {
+      listMessages: vi.fn(async (sessionId: string) => {
+        expect(sessionId).toBe("existing-global-session");
+        return {
+          session: { ...globalSession, id: "existing-global-session" },
+          messages,
+        };
+      }),
+      submitPrompt,
+      subscribeEvents: vi.fn((input: { onEvent: (event: unknown) => void }) => {
+        onEvent = input.onEvent;
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatSessionSavedConversationStore({
+      client,
+      sessionId: "existing-global-session",
+    });
+
+    await store.load();
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: "existing-global-session" },
+      status: "ready",
+      title: "Global prompt",
+      messages: [
+        { id: "message-1", text: "First user message" },
+        { id: "message-2", text: "Second **assistant** message" },
+      ],
+    });
+
+    await store.send("Second global prompt");
+    onEvent?.({
+      sequence: 7,
+      eventType: "GlobalChatAgentMessageCompletedV1",
+      event: {
+        type: "GlobalChatAgentMessageCompletedV1",
+        version: 1,
+        sessionId: "existing-global-session",
+        turnId: "existing-session-turn-2",
+        messageId: "existing-session-assistant-2",
+        text: "settled second answer",
+        timestamp: "2026-01-01T00:00:07.000Z",
+      },
+    });
+
+    expect(client.createWithFirstPrompt).toBeUndefined();
+    expect(submitPrompt).toHaveBeenCalledTimes(1);
+    expect(submitPrompt).toHaveBeenCalledWith(
+      "existing-global-session",
+      "Second global prompt",
+      expect.any(String),
+    );
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: "existing-global-session" },
+      title: "Global prompt",
+      messages: [
+        { id: "message-1", text: "First user message" },
+        { id: "message-2", text: "Second **assistant** message" },
+        { id: "existing-session-user-2", text: "Second global prompt" },
+        { id: "existing-session-assistant-2", text: "settled second answer" },
+      ],
+    });
+  });
+
   it("preserves failed submissions in the composer projection without retrying", async () => {
     const definitiveError = Object.assign(
       new Error("definitive host rejection"),
