@@ -32,7 +32,8 @@
     "projectSession": "Session de projet",
     "projectSessionSurface": "Conversation de session de projet",
     "globalChatSession": "Session de chat global",
-    "globalChatSessionSurface": "Conversation de session de chat global"
+    "globalChatSessionSurface": "Conversation de session de chat global",
+    "newChatDraft": "Nouveau brouillon de chat"
   },
   "settings": {
     "title": "Paramètres",

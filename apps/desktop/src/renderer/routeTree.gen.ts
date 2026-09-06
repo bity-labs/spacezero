@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgentCapabilitiesRouteImport } from './routes/agent-capabilities'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as GlobalChatSessionsSessionIdRouteImport } from './routes/global-chat-sessions.$sessionId'
+import { Route as GlobalChatSessionsNewRouteImport } from './routes/global-chat-sessions.new'
 import { Route as ProjectSessionsSessionIdRouteImport } from './routes/project-sessions.$sessionId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -36,6 +37,11 @@ const GlobalChatSessionsSessionIdRoute =
     path: '/global-chat-sessions/$sessionId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const GlobalChatSessionsNewRoute = GlobalChatSessionsNewRouteImport.update({
+  id: '/global-chat-sessions/new',
+  path: '/global-chat-sessions/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectSessionsSessionIdRoute =
   ProjectSessionsSessionIdRouteImport.update({
     id: '/project-sessions/$sessionId',
@@ -48,6 +54,7 @@ export interface FileRoutesByFullPath {
   '/agent-capabilities': typeof AgentCapabilitiesRoute
   '/settings': typeof SettingsRoute
   '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
+  '/global-chat-sessions/new': typeof GlobalChatSessionsNewRoute
   '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
 }
 export interface FileRoutesByTo {
@@ -55,6 +62,7 @@ export interface FileRoutesByTo {
   '/agent-capabilities': typeof AgentCapabilitiesRoute
   '/settings': typeof SettingsRoute
   '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
+  '/global-chat-sessions/new': typeof GlobalChatSessionsNewRoute
   '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
 }
 export interface FileRoutesById {
@@ -63,6 +71,7 @@ export interface FileRoutesById {
   '/agent-capabilities': typeof AgentCapabilitiesRoute
   '/settings': typeof SettingsRoute
   '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
+  '/global-chat-sessions/new': typeof GlobalChatSessionsNewRoute
   '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
 }
 export interface FileRouteTypes {
@@ -72,6 +81,7 @@ export interface FileRouteTypes {
     | '/agent-capabilities'
     | '/settings'
     | '/global-chat-sessions/$sessionId'
+    | '/global-chat-sessions/new'
     | '/project-sessions/$sessionId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -79,6 +89,7 @@ export interface FileRouteTypes {
     | '/agent-capabilities'
     | '/settings'
     | '/global-chat-sessions/$sessionId'
+    | '/global-chat-sessions/new'
     | '/project-sessions/$sessionId'
   id:
     | '__root__'
@@ -86,6 +97,7 @@ export interface FileRouteTypes {
     | '/agent-capabilities'
     | '/settings'
     | '/global-chat-sessions/$sessionId'
+    | '/global-chat-sessions/new'
     | '/project-sessions/$sessionId'
   fileRoutesById: FileRoutesById
 }
@@ -94,6 +106,7 @@ export interface RootRouteChildren {
   AgentCapabilitiesRoute: typeof AgentCapabilitiesRoute
   SettingsRoute: typeof SettingsRoute
   GlobalChatSessionsSessionIdRoute: typeof GlobalChatSessionsSessionIdRoute
+  GlobalChatSessionsNewRoute: typeof GlobalChatSessionsNewRoute
   ProjectSessionsSessionIdRoute: typeof ProjectSessionsSessionIdRoute
 }
 
@@ -127,6 +140,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GlobalChatSessionsSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/global-chat-sessions/new': {
+      id: '/global-chat-sessions/new'
+      path: '/global-chat-sessions/new'
+      fullPath: '/global-chat-sessions/new'
+      preLoaderRoute: typeof GlobalChatSessionsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/project-sessions/$sessionId': {
       id: '/project-sessions/$sessionId'
       path: '/project-sessions/$sessionId'
@@ -142,6 +162,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentCapabilitiesRoute: AgentCapabilitiesRoute,
   SettingsRoute: SettingsRoute,
   GlobalChatSessionsSessionIdRoute: GlobalChatSessionsSessionIdRoute,
+  GlobalChatSessionsNewRoute: GlobalChatSessionsNewRoute,
   ProjectSessionsSessionIdRoute: ProjectSessionsSessionIdRoute,
 }
 export const routeTree = rootRouteImport

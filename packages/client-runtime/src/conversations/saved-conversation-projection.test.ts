@@ -4,6 +4,7 @@ import {
   createGlobalChatSessionSavedConversationStore,
   createProjectSessionSavedConversationStore,
   createSavedConversationStore,
+  globalChatDraftSessionId,
   type SavedConversationProjection,
 } from "./saved-conversation-projection.js";
 import type {
@@ -2081,6 +2082,96 @@ describe("saved conversation projection", () => {
       ]);
     },
   );
+
+  it("surfaces typed Host errors from a failed first draft send", async () => {
+    const client = {
+      createWithFirstPrompt: vi.fn(async () => {
+        throw {
+          code: "command_id_conflict",
+          message:
+            "This Global Chat Session command ID was already used for different input.",
+        };
+      }),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatDraftConversationStore({ client });
+
+    await store.load();
+    await expect(store.send("First global prompt")).rejects.toMatchObject({
+      code: "command_id_conflict",
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: globalChatDraftSessionId },
+      error: {
+        message:
+          "This Global Chat Session command ID was already used for different input.",
+      },
+    });
+  });
+
+  it("does not subscribe to Host events while the draft has no durable session", async () => {
+    const subscribeEvents = vi.fn(() => ({
+      cancel: vi.fn(),
+      closed: Promise.resolve(),
+    }));
+    const client = {
+      createWithFirstPrompt: vi.fn(
+        async (prompt: string, commandId: string) => ({
+          session: {
+            ...globalSession,
+            id: "created-global-session",
+            lastSequence: 4,
+          },
+          userMessage: {
+            id: "created-user-message",
+            role: "user" as const,
+            text: prompt,
+            sequence: 3,
+            createdAt: "2026-01-01T00:00:03.000Z",
+          },
+          firstMessage: {
+            id: "created-user-message",
+            role: "user" as const,
+            text: prompt,
+            sequence: 3,
+            createdAt: "2026-01-01T00:00:03.000Z",
+          },
+          turn: {
+            id: "global-turn-1",
+            commandId,
+            state: "running" as const,
+            userMessageId: "created-user-message",
+            assistantMessageId: "created-assistant-message",
+            assistantMessageIds: ["created-assistant-message"],
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "",
+            draftMessages: [],
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        }),
+      ),
+      subscribeEvents,
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatDraftConversationStore({ client });
+
+    await store.load();
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: globalChatDraftSessionId },
+      status: "empty",
+      messages: [],
+    });
+    expect(subscribeEvents).not.toHaveBeenCalled();
+
+    await store.send("First global prompt");
+
+    expect(subscribeEvents).toHaveBeenCalledTimes(1);
+    expect(subscribeEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "created-global-session" }),
+    );
+  });
 
   it("creates a Global Chat Session only on first draft send without duplicating the prompt", async () => {
     const createWithFirstPrompt = vi.fn(
