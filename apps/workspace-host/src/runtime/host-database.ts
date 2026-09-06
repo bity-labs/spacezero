@@ -11,15 +11,28 @@ const MIGRATIONS_TABLE = "effect_sql_migrations";
  * Tables owned by the Host migration chain. Their presence without a readable
  * migrations table means the database state cannot be proven safe, so startup
  * must fail closed (ADR 0044).
+ *
+ * Must match the tables created by `hostMigrationLoader` exactly; the Host
+ * data wipe integration tests verify this against a freshly migrated
+ * database so the list cannot drift from the migration chain.
  */
-const KNOWN_HOST_TABLES = [
+export const KNOWN_HOST_TABLES = [
   MIGRATIONS_TABLE,
-  "host_metadata",
   "projects",
+  "project_registration_receipts",
+  "host_metadata",
   "chat_sessions",
+  "project_session_bindings",
+  "project_session_name_reservations",
+  "chat_session_events",
+  "chat_session_messages",
+  "chat_session_turns",
+  "chat_session_runtime_configurations",
+  "chat_session_pi_contexts",
+  "chat_session_command_receipts",
+  "project_session_follow_ups",
   "workspace_tool_policies",
   "agent_runtime_defaults",
-  "project_session_follow_ups",
   "global_chat_session_follow_ups",
 ] as const;
 
@@ -67,12 +80,11 @@ const inspectHostDataState = (filename: string) =>
 const wipeHostDatabaseFiles = (filename: string) =>
   Effect.tryPromise({
     try: async () => {
-      await Promise.all([
-        rm(filename, { force: true }),
-        rm(`${filename}-wal`, { force: true }),
-        rm(`${filename}-shm`, { force: true }),
-        rm(`${filename}-journal`, { force: true }),
-      ]);
+      // Sidecars first so the main database file always disappears last.
+      await rm(`${filename}-wal`, { force: true });
+      await rm(`${filename}-shm`, { force: true });
+      await rm(`${filename}-journal`, { force: true });
+      await rm(filename, { force: true });
     },
     catch: (cause) =>
       new HostDataVersionRefusedError(
