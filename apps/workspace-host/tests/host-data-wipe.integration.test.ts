@@ -1,9 +1,14 @@
+import { Effect } from "effect";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ConversationRunner } from "@spacezero/pi-adapter";
+import {
+  KNOWN_HOST_TABLES,
+  runHostDatabaseMigrations,
+} from "../dist/runtime/host-database.js";
 import {
   startHostServer,
   type StartedHostServer,
@@ -252,6 +257,45 @@ describe("Pre-release Host data wipe policy", () => {
     await expect(start(databasePath, join(root, "SpaceZero"))).rejects.toThrow(
       /refusing to start.*host tables without version record/u,
     );
+  });
+
+  it("refuses to start when a migration-chain table like chat_session_command_receipts exists without a version record", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const db = new DatabaseSync(databasePath);
+    try {
+      db.exec(
+        "CREATE TABLE chat_session_command_receipts (command_id TEXT PRIMARY KEY)",
+      );
+    } finally {
+      db.close();
+    }
+
+    await expect(start(databasePath, join(root, "SpaceZero"))).rejects.toThrow(
+      /refusing to start.*host tables without version record/u,
+    );
+  });
+
+  it("known host tables match exactly the tables created by the migration chain", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    await Effect.runPromise(runHostDatabaseMigrations(databasePath));
+
+    const db = new DatabaseSync(databasePath);
+    let migratedTables: string[];
+    try {
+      migratedTables = (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+          )
+          .all() as Array<{ name: string }>
+      ).map((row) => row.name);
+    } finally {
+      db.close();
+    }
+
+    expect([...KNOWN_HOST_TABLES].sort()).toEqual(migratedTables);
   });
 
   it("refuses to start and keeps the file when the database is unreadable", async () => {
