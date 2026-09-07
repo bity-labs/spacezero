@@ -30,6 +30,7 @@ import {
 } from "@spacezero/pi-adapter";
 import { createChatTurnRunner } from "../chat-sessions/chat-turn-runner.service.js";
 import type { SkillDiscoveryResult } from "../agent-resources/skill-discovery.service.js";
+import type { GlobalChatInspectionWorkspaceTools } from "../workspace-tools/global-chat-inspection-tools.js";
 import { GlobalChatSessionServiceError } from "./global-chat-session.model.js";
 import { createGlobalChatSessionRepository } from "./global-chat-session.repository.js";
 
@@ -121,11 +122,6 @@ const mapError = (error: unknown): GlobalChatSessionServiceError => {
   return new GlobalChatSessionServiceError("global_chat_session_unavailable");
 };
 
-const noTools = {
-  listTurnTools: () => [],
-  approvalForTool: () => ({}),
-};
-
 export const createGlobalChatSessionService = (options: {
   readonly databasePath: string;
   readonly conversationRunner?: ConversationRunner;
@@ -134,11 +130,22 @@ export const createGlobalChatSessionService = (options: {
   /** Host-approved global skill discovery for Global Chat Sessions. Global
    * Chat has no Project identity, so only approved global roots are scanned
    * and disabled global skills are already excluded. */
+  /** Host-approved global skill discovery for Global Chat Sessions. Global
+   * Chat has no Project identity, so only approved global roots are scanned
+   * and disabled global skills are already excluded. */
   readonly listSessionSkills?: (input: {
     readonly sessionId: string;
   }) => Promise<SkillDiscoveryResult>;
+  /** Host-approved read-only inspection Workspace Tools for Global Chat
+   * turns. Global Chat never receives Project, Files, Git, worktree-scoped,
+   * credential, raw Pi, Host-internal, or app-state mutation tools. */
+  readonly inspectionTools: GlobalChatInspectionWorkspaceTools;
 }): GlobalChatSessionService => {
-  const repository = createGlobalChatSessionRepository(options);
+  const repository = createGlobalChatSessionRepository({
+    ...options,
+    activitySummaryForTool: (toolName) =>
+      options.inspectionTools.activitySummaryForTool(toolName),
+  });
   const conversationRunner =
     options.conversationRunner ?? createScriptedConversationRunner();
   const turnRunner = createChatTurnRunner<
@@ -242,8 +249,8 @@ export const createGlobalChatSessionService = (options: {
       conversationId: input.admitted.conversationId,
       admission: input.admitted,
       repository,
-      tools: { kind: "none", enabledToolNames: [] },
-      toolPolicy: noTools,
+      tools: options.inspectionTools.turnToolConfiguration(),
+      toolPolicy: options.inspectionTools.chatTurnToolPolicy,
       resources: {
         skills: skills.map((skill) => ({
           name: skill.name,
@@ -554,7 +561,9 @@ export const createGlobalChatSessionService = (options: {
         // Fails closed with global_chat_session_not_found for unknown or
         // non-Global Chat session ids.
         await repository.getRuntime(sessionId);
-        const discovery = (await options.listSessionSkills?.({ sessionId })) ?? {
+        const discovery = (await options.listSessionSkills?.({
+          sessionId,
+        })) ?? {
           sessionId,
           skills: [],
           diagnostics: [],

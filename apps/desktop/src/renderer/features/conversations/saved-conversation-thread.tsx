@@ -8,6 +8,7 @@ import {
 import { Thread, type ThreadViewState } from "@spacezero/ui/components/thread";
 import { ErrorState } from "@spacezero/ui/components/assistant-ui/elements/error-state";
 import { StoppedRun } from "@spacezero/ui/components/assistant-ui/elements/stopped-run";
+import { ThinkingIndicator } from "@spacezero/ui/components/assistant-ui/elements/thinking-indicator";
 import {
   useEffect,
   useMemo,
@@ -30,6 +31,30 @@ const completedAssistantStatus = {
   reason: "stop",
 } as const;
 const runningAssistantStatus = { type: "running" } as const;
+
+/**
+ * Shared chat status policy: while a turn is running, the status banner
+ * shows the latest sanitized tool activity summary when tool work is known,
+ * and falls back to the plain responding label otherwise.
+ */
+const runningTurnActivityLabel = (
+  projection: SavedConversationProjection,
+): string | undefined => {
+  if (projection.runtime.status !== "running") return undefined;
+  const turnId =
+    projection.runtime.activeTurnId ?? projection.runtime.latestTurnId;
+  const toolPart = [...projection.messages]
+    .filter(
+      (message) =>
+        message.role === "assistant" &&
+        (turnId === undefined || message.turnId === turnId),
+    )
+    .reverse()
+    .flatMap((message) => message.parts)
+    .find((part) => part.type === "tool-call");
+  if (toolPart?.type !== "tool-call") return undefined;
+  return toolPart.progress ?? `Running ${toolPart.toolName}`;
+};
 
 const textFromAppendMessage = (message: AppendMessage): string =>
   message.content
@@ -176,15 +201,16 @@ const ConversationStatusBanner = ({
         work will not continue until recovery.
       </div>
     );
-  if (projection.runtime.status === "running")
+  if (projection.runtime.status === "running") {
+    const activityLabel = runningTurnActivityLabel(projection);
     return (
-      <div
-        role="status"
-        className="border-b border-border px-4 py-3 text-sm text-muted-foreground"
-      >
-        Assistant is responding.
+      <div role="status" className="border-b border-border px-4 py-3 text-sm">
+        <ThinkingIndicator
+          label={activityLabel ?? "Assistant is responding."}
+        />
       </div>
     );
+  }
   return null;
 };
 

@@ -644,4 +644,188 @@ describe("createPiConversationRunner", () => {
 
     expect(toolNames).toEqual([["read", "write", "edit"]]);
   });
+
+  it("configures only the host-approved read-only inspection tools", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const toolNames: string[][] = [];
+    faux.setResponses([
+      (context) => {
+        toolNames.push(context.tools?.map((tool) => tool.name) ?? []);
+        return fauxAssistantMessage("done");
+      },
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    await expect(
+      runner.submitTurn(
+        await input({
+          tools: {
+            kind: "readOnlyInspection",
+            tools: [
+              {
+                name: "workspace.getStatus",
+                description: "Inspect workspace status.",
+                parameters: {
+                  type: "object",
+                  properties: {},
+                  additionalProperties: false,
+                },
+                execute: async () => ({ hostConnected: true }),
+              },
+            ],
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({ text: "done" });
+
+    expect(toolNames).toEqual([["workspace.getStatus"]]);
+  });
+
+  it("executes approved read-only inspection tools and records safe activity", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const events: unknown[] = [];
+    const seenArgs: unknown[] = [];
+    faux.setResponses([
+      fauxAssistantMessage(
+        fauxToolCall(
+          "globalChats.listSummaries",
+          { includeArchived: true },
+          { id: "call-1" },
+        ),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage("done"),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    const result = await runner.submitTurn(
+      await input({
+        onEvent: async (event) => {
+          events.push(event);
+        },
+        tools: {
+          kind: "readOnlyInspection",
+          tools: [
+            {
+              name: "globalChats.listSummaries",
+              description: "List Global Chat summaries.",
+              parameters: {
+                type: "object",
+                properties: { includeArchived: { type: "boolean" } },
+                additionalProperties: false,
+              },
+              execute: async (args) => {
+                seenArgs.push(args);
+                return { sessions: [] };
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(seenArgs).toEqual([{ includeArchived: true }]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_started",
+          toolName: "globalChats.listSummaries",
+        }),
+        expect.objectContaining({
+          type: "tool_completed",
+          toolName: "globalChats.listSummaries",
+          isError: false,
+        }),
+      ]),
+    );
+    expect(result.parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "globalChats.listSummaries",
+          status: "succeeded",
+        }),
+      ]),
+    );
+  });
+
+  it("denies tool calls outside the approved read-only inspection set", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const events: unknown[] = [];
+    const executed: string[] = [];
+    faux.setResponses([
+      fauxAssistantMessage(
+        fauxToolCall("write", { path: "src/app.ts" }, { id: "call-1" }),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage("done"),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    const result = await runner.submitTurn(
+      await input({
+        onEvent: async (event) => {
+          events.push(event);
+        },
+        tools: {
+          kind: "readOnlyInspection",
+          tools: [
+            {
+              name: "workspace.getStatus",
+              description: "Inspect workspace status.",
+              parameters: {
+                type: "object",
+                properties: {},
+                additionalProperties: false,
+              },
+              execute: async () => {
+                executed.push("workspace.getStatus");
+                return {};
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(executed).toEqual([]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_denied",
+          toolName: "write",
+        }),
+      ]),
+    );
+    // The denied call must not have executed the approved tool; the loop
+    // records a failed tool result instead of a tool output.
+    expect(
+      (
+        result.parts?.find(
+          (part) => part.type === "tool-call" && part.toolName === "write",
+        ) as { status?: string } | undefined
+      )?.status,
+    ).toBe("failed");
+  });
 });

@@ -317,6 +317,31 @@ CREATE TABLE skill_preferences (
 )`;
 });
 
+/**
+ * Minimal Agent Activity History for Global Chat tool use. One settled or
+ * denied tool call becomes one row with metadata only: session id, tool
+ * name, safety, timestamp, outcome, and a concise summary. Full tool inputs
+ * and outputs are never stored here.
+ */
+export const createAgentActivityHistoryMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE agent_activity_history (
+  session_id TEXT NOT NULL,
+  tool_call_id TEXT NOT NULL,
+  turn_id TEXT,
+  tool_name TEXT NOT NULL CHECK (length(tool_name) BETWEEN 1 AND 128),
+  safety TEXT CHECK (safety IS NULL OR safety IN ('read', 'write', 'dangerous')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'failed', 'denied')),
+  summary TEXT NOT NULL CHECK (length(summary) BETWEEN 1 AND 256),
+  timestamp TEXT NOT NULL,
+  PRIMARY KEY (session_id, tool_call_id),
+  FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX agent_activity_history_session_order ON agent_activity_history(session_id, timestamp)`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [2, "create_chat_sessions", Effect.succeed(createChatSessionsMigration)],
@@ -370,12 +395,17 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     "create_skill_preferences",
     Effect.succeed(createSkillPreferencesMigration),
   ],
+  [
+    13,
+    "create_agent_activity_history",
+    Effect.succeed(createAgentActivityHistoryMigration),
+  ],
 ] as const);
 
 /**
  * Current required durable Host data schema version. Persisted databases
  * below this version are wiped and recreated at startup (ADR 0044).
  */
-export const HOST_DATA_VERSION = 12;
+export const HOST_DATA_VERSION = 13;
 
 export const projectCatalogMigrationLoader = hostMigrationLoader;

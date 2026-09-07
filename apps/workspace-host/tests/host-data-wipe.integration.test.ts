@@ -158,24 +158,24 @@ describe("Pre-release Host data wipe policy", () => {
       await first.stop();
       hosts = [];
 
-      // Simulate a pre-version-12 developer database: the recorded version is
+      // Simulate a pre-version-13 developer database: the recorded version is
       // below the required version, so the durable database is wiped and
       // recreated under ADR 0044.
-      expect(recordedVersion(databasePath)).toBe(12);
+      expect(recordedVersion(databasePath)).toBe(13);
       {
         const db = new DatabaseSync(databasePath);
         try {
           db.prepare(
-            "DELETE FROM effect_sql_migrations WHERE migration_id = 12",
+            "DELETE FROM effect_sql_migrations WHERE migration_id = 13",
           ).run();
-          expect(recordedVersion(databasePath)).toBe(11);
+          expect(recordedVersion(databasePath)).toBe(12);
         } finally {
           db.close();
         }
       }
 
       const restarted = await start(databasePath, spaceZeroHome, echoRunner);
-      expect(recordedVersion(databasePath)).toBe(12);
+      expect(recordedVersion(databasePath)).toBe(13);
       expect(countRows(databasePath, "chat_sessions")).toBe(0);
       expect(countRows(databasePath, "chat_session_turns")).toBe(0);
       expect(countRows(databasePath, "chat_session_events")).toBe(0);
@@ -232,12 +232,12 @@ describe("Pre-release Host data wipe policy", () => {
     const db = new DatabaseSync(databasePath);
     try {
       db.prepare(
-        "UPDATE effect_sql_migrations SET migration_id = migration_id + 1 WHERE migration_id = 12",
+        "UPDATE effect_sql_migrations SET migration_id = migration_id + 1 WHERE migration_id = 13",
       ).run();
     } finally {
       db.close();
     }
-    expect(recordedVersion(databasePath)).toBe(13);
+    expect(recordedVersion(databasePath)).toBe(14);
 
     await expect(start(databasePath, spaceZeroHome)).rejects.toThrow(
       /refusing to start.*newer than required/u,

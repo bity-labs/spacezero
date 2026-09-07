@@ -35,6 +35,7 @@ export const KNOWN_HOST_TABLES = [
   "agent_runtime_defaults",
   "global_chat_session_follow_ups",
   "skill_preferences",
+  "agent_activity_history",
 ] as const;
 
 export class HostDataVersionRefusedError extends Error {
