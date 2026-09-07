@@ -77,6 +77,16 @@ const createRepository = (
 const runTurn = async (input: {
   readonly runner: ConversationRunner;
   readonly repository: ChatTurnRepository;
+  readonly toolPolicy?: {
+    readonly listTurnTools: () => readonly {
+      readonly name: string;
+      readonly safety?: "read" | "write" | "dangerous";
+    }[];
+    readonly approvalForTool: (toolName: string) => {
+      readonly status?: "approved" | "requires_approval";
+      readonly reason?: string;
+    };
+  };
 }) => {
   const turnRunner = createChatTurnRunner<never, TestLiveEnvelope>({
     conversationRunner: input.runner,
@@ -89,7 +99,7 @@ const runTurn = async (input: {
     admission,
     repository: input.repository,
     tools: { kind: "none", enabledToolNames: [] },
-    toolPolicy: {
+    toolPolicy: input.toolPolicy ?? {
       listTurnTools: () => [],
       approvalForTool: () => ({}),
     },
@@ -296,6 +306,48 @@ describe("chat turn persistence failure path", () => {
     });
     expect(repository.recordToolCompleted).not.toHaveBeenCalled();
     expect(repository.completeTurn).toHaveBeenCalled();
+  });
+
+  it("records the denied tool safety from the chat turn tool policy", async () => {
+    const repository = createRepository({
+      recordToolDenied: vi.fn(async () => undefined),
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "tool_denied",
+          toolCallId: "call-1",
+          toolName: "globalChats.createWithPrompt",
+          reason: "user_confirmation_required",
+        } satisfies AgentRuntimeEvent);
+        return { text: "done" };
+      },
+    };
+
+    await runTurn({
+      runner,
+      repository,
+      toolPolicy: {
+        listTurnTools: () => [
+          { name: "globalChats.createWithPrompt", safety: "write" },
+        ],
+        approvalForTool: () => ({
+          status: "requires_approval",
+          reason: "user_confirmation_required",
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(repository.recordToolDenied).toHaveBeenCalledWith({
+        sessionId,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "globalChats.createWithPrompt",
+        safety: "write",
+        reason: "user_confirmation_required",
+      });
+    });
   });
 
   it("ignores denial events when the repository does not keep denial activity", async () => {

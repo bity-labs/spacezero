@@ -45,6 +45,11 @@ import { GlobalChatSessionServiceError } from "../features/global-chat-sessions/
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
 import { createGlobalChatInspectionWorkspaceTools } from "../features/workspace-tools/global-chat-inspection-tools.js";
+import {
+  createGlobalChatMutationWorkspaceTools,
+  GLOBAL_CHAT_MUTATION_CONFIRMATION_REASON,
+  type GlobalChatMutationConfirmationGate,
+} from "../features/workspace-tools/global-chat-mutation-tools.js";
 import { readWorkspaceSessionSnapshot } from "../features/workspace-tools/workspace-snapshot.repository.js";
 import {
   createFileCredentialStore,
@@ -213,6 +218,11 @@ export const startHostServer = async (options: {
   readonly providerAuth?: ProviderAuthService;
   readonly modelCatalog?: PiModelCatalogService;
   readonly clientCapabilityTtlMs?: number;
+  /** Host-owned confirmation gate for Global Chat mutation Workspace Tools.
+   * The default policy denies every call: without an explicit user
+   * confirmation decision no Global Chat Session can be created by an agent.
+   */
+  readonly globalChatMutationConfirmation?: GlobalChatMutationConfirmationGate;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
   const id = instanceId();
@@ -308,12 +318,38 @@ export const startHostServer = async (options: {
       (await agentRuntimeDefaults.get()).defaults,
     listAgentModels: () => modelCatalog.listModels(),
   });
+  const globalChatMutationTools = createGlobalChatMutationWorkspaceTools({
+    inspectionTools: globalChatInspectionTools,
+    createSessionWithFirstPrompt: async (input) => {
+      const result = await globalChatSessions.createWithFirstPrompt({
+        commandId: input.commandId,
+        firstPrompt: input.firstPrompt,
+      });
+      return {
+        id: result.session.id,
+        title: result.session.title,
+        archived: result.session.archived,
+        createdAt: result.session.createdAt,
+        updatedAt: result.session.updatedAt,
+      };
+    },
+    confirmToolCall:
+      options.globalChatMutationConfirmation ??
+      // Default Global Chat mutation policy: deny every call. Without an
+      // explicit user confirmation decision no app-state mutation happens.
+      (async () =>
+        ({
+          approved: false,
+          reason: GLOBAL_CHAT_MUTATION_CONFIRMATION_REASON,
+        }) satisfies Awaited<ReturnType<GlobalChatMutationConfirmationGate>>),
+  });
   const globalChatSessions = createGlobalChatSessionService({
     databasePath,
     conversationRunner,
     privatePiStateRepository,
     listSessionSkills: listGlobalChatSessionSkills,
     inspectionTools: globalChatInspectionTools,
+    mutationTools: globalChatMutationTools,
     ...(options.modelCatalog || !options.conversationRunner
       ? { modelCatalog }
       : {}),

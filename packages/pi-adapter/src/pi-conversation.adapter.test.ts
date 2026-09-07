@@ -828,4 +828,180 @@ describe("createPiConversationRunner", () => {
       )?.status,
     ).toBe("failed");
   });
+
+  it("executes confirmed mutation tools only after an explicit approval decision", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const events: unknown[] = [];
+    const executed: string[] = [];
+    const gateCalls: { toolName: string; args: unknown }[] = [];
+    faux.setResponses([
+      fauxAssistantMessage(
+        fauxToolCall(
+          "globalChats.createWithPrompt",
+          { prompt: "Plan the week" },
+          { id: "call-1" },
+        ),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage("created"),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    const result = await runner.submitTurn(
+      await input({
+        onEvent: async (event) => {
+          events.push(event);
+        },
+        tools: {
+          kind: "inspectionWithConfirmedMutation",
+          tools: [
+            {
+              name: "workspace.getStatus",
+              description: "Inspect workspace status.",
+              parameters: {
+                type: "object",
+                properties: {},
+                additionalProperties: false,
+              },
+              execute: async () => ({}),
+            },
+          ],
+          confirmedTools: [
+            {
+              name: "globalChats.createWithPrompt",
+              description: "Create a new Global Chat Session.",
+              parameters: {
+                type: "object",
+                properties: { prompt: { type: "string", minLength: 1 } },
+                required: ["prompt"],
+                additionalProperties: false,
+              },
+              execute: async (args) => {
+                executed.push("globalChats.createWithPrompt");
+                return {
+                  id: "created-1",
+                  promptEcho: JSON.stringify(args),
+                };
+              },
+            },
+          ],
+          confirmToolCall: async (gateInput) => {
+            gateCalls.push(gateInput);
+            return { approved: true };
+          },
+        },
+      }),
+    );
+
+    expect(gateCalls).toEqual([
+      {
+        toolName: "globalChats.createWithPrompt",
+        args: { prompt: "Plan the week" },
+      },
+    ]);
+    expect(executed).toEqual(["globalChats.createWithPrompt"]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_completed",
+          toolName: "globalChats.createWithPrompt",
+          isError: false,
+        }),
+      ]),
+    );
+    expect(
+      (
+        result.parts?.find(
+          (part) =>
+            part.type === "tool-call" &&
+            part.toolName === "globalChats.createWithPrompt",
+        ) as { status?: string } | undefined
+      )?.status,
+    ).toBe("succeeded");
+  });
+
+  it("blocks confirmed mutation tools when confirmation is denied", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const events: unknown[] = [];
+    const executed: string[] = [];
+    faux.setResponses([
+      fauxAssistantMessage(
+        fauxToolCall(
+          "globalChats.createWithPrompt",
+          { prompt: "Plan the week" },
+          { id: "call-1" },
+        ),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage("acknowledged the denial"),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    const result = await runner.submitTurn(
+      await input({
+        onEvent: async (event) => {
+          events.push(event);
+        },
+        tools: {
+          kind: "inspectionWithConfirmedMutation",
+          tools: [],
+          confirmedTools: [
+            {
+              name: "globalChats.createWithPrompt",
+              description: "Create a new Global Chat Session.",
+              parameters: {
+                type: "object",
+                properties: { prompt: { type: "string", minLength: 1 } },
+                required: ["prompt"],
+                additionalProperties: false,
+              },
+              execute: async () => {
+                executed.push("globalChats.createWithPrompt");
+                return { id: "created-1" };
+              },
+            },
+          ],
+          confirmToolCall: async () => ({
+            approved: false,
+            reason: "user_confirmation_required",
+          }),
+        },
+      }),
+    );
+
+    expect(executed).toEqual([]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_denied",
+          toolName: "globalChats.createWithPrompt",
+          reason: "user_confirmation_required",
+        }),
+      ]),
+    );
+    expect(
+      (
+        result.parts?.find(
+          (part) =>
+            part.type === "tool-call" &&
+            part.toolName === "globalChats.createWithPrompt",
+        ) as { status?: string } | undefined
+      )?.status,
+    ).toBe("failed");
+    expect(result.text).toContain("acknowledged the denial");
+  });
 });

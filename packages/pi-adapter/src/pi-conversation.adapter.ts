@@ -477,10 +477,19 @@ export function createPiConversationRunner(
         input.tools.kind === "managedWorktree"
           ? input.tools.workingDirectory
           : undefined;
+      const confirmedMutationTools =
+        input.tools.kind === "inspectionWithConfirmedMutation"
+          ? input.tools.confirmedTools
+          : [];
       const inspectionTools =
         input.tools.kind === "readOnlyInspection"
           ? toInspectionAgentTools(input.tools.tools)
-          : [];
+          : input.tools.kind === "inspectionWithConfirmedMutation"
+            ? toInspectionAgentTools([
+                ...input.tools.tools,
+                ...confirmedMutationTools,
+              ])
+            : [];
       const toolContentPolicy = createPublicToolContentPolicy({
         ...(worktreeRoot === undefined ? {} : { worktreeRoot }),
         ...(config.protectedPathRoots === undefined
@@ -491,7 +500,18 @@ export function createPiConversationRunner(
       const enabledToolNames =
         input.tools.kind === "readOnlyInspection"
           ? input.tools.tools.map((tool) => tool.name)
-          : input.tools.enabledToolNames;
+          : input.tools.kind === "inspectionWithConfirmedMutation"
+            ? [...input.tools.tools, ...confirmedMutationTools].map(
+                (tool) => tool.name,
+              )
+            : input.tools.enabledToolNames;
+      const confirmedMutationNames = confirmedMutationTools.map(
+        (tool) => tool.name,
+      );
+      const confirmToolCall =
+        input.tools.kind === "inspectionWithConfirmedMutation"
+          ? input.tools.confirmToolCall
+          : undefined;
       const agent = new Agent({
         streamFn: models.streamSimple.bind(models),
         initialState: {
@@ -508,7 +528,7 @@ export function createPiConversationRunner(
         },
         sessionId: input.conversationId,
         toolExecution: "sequential",
-        beforeToolCall: async ({ toolCall }) => {
+        beforeToolCall: async ({ toolCall, args }) => {
           if (!enabledToolNames.includes(toolCall.name)) {
             await input.onEvent?.({
               type: "tool_denied",
@@ -521,6 +541,32 @@ export function createPiConversationRunner(
               terminate: true,
               reason: "Tool is not enabled for this Chat Session",
             };
+          }
+          // Confirmed mutation tools execute only after the Host-owned gate
+          // returns an explicit approval; anything else denies the call before
+          // the mutation can happen, and the denial is reported so durable
+          // activity history records the denied outcome.
+          if (
+            confirmToolCall !== undefined &&
+            confirmedMutationNames.includes(toolCall.name)
+          ) {
+            const decision = await confirmToolCall({
+              toolName: toolCall.name,
+              args: (args ?? {}) as AgentToolJsonObject,
+            });
+            if (!decision.approved) {
+              const reason = decision.reason ?? "user_confirmation_required";
+              await input.onEvent?.({
+                type: "tool_denied",
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+                reason,
+              });
+              return {
+                block: true,
+                reason: `Tool ${toolCall.name} was not executed: ${reason}`,
+              };
+            }
           }
           return undefined;
         },
