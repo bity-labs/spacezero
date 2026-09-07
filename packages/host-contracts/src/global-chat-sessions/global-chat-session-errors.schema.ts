@@ -131,7 +131,7 @@ export const globalChatSessionErrorBody = (
       return {
         code,
         message:
-          "Chat titles cannot be empty and must be 60 characters or fewer on a single line.",
+          "Chat titles cannot be empty and must be 120 characters or fewer on a single line.",
       };
     case "global_chat_session_turn_in_progress":
       return {
