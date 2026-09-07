@@ -316,7 +316,7 @@ export const createGlobalChatInspectionWorkspaceTools = (
         modelId: descriptor.modelId,
         modelName: descriptor.displayName,
         defaultThinkingLevel: defaults.defaultThinkingLevel ?? "off",
-        modelSupportsThinking: descriptor.supportedThinkingLevels.length > 0,
+        modelSupportsThinking: descriptor.reasoningSupported,
       };
     }
     throw new Error(`Tool ${toolName} is not available in Global Chat`);
