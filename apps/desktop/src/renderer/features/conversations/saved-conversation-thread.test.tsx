@@ -617,6 +617,68 @@ describe("SavedConversationThread", () => {
     );
   });
 
+  it("shows the latest sanitized tool summary in the running status banner", async () => {
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-chat-1",
+      load: async () => ({
+        title: "status chat",
+        lastSequence: 3,
+        messages: [
+          {
+            id: "user-message-1",
+            role: "user" as const,
+            text: "Check the workspace",
+            sequence: 3,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "running" as const,
+          userMessageId: "user-message-1",
+          assistantMessageId: "assistant-message-1",
+          assistantMessageIds: ["assistant-message-1"],
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          draftMessages: [
+            {
+              id: "assistant-message-1",
+              text: "",
+              parts: [
+                {
+                  id: "assistant-message-1:tool-call:call-1",
+                  type: "tool-call" as const,
+                  order: 1,
+                  toolCallId: "call-1",
+                  toolName: "workspace.getStatus",
+                  status: "running" as const,
+                  progress: "Reading workspace status",
+                  safety: "read" as const,
+                  approvalStatus: "approved" as const,
+                },
+              ],
+            },
+          ],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(
+      await screen.findByText("Reading workspace status"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Assistant is responding."),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders Host queued follow-ups and cancels eligible items through the store", async () => {
     const cancelled: string[] = [];
     const store = createSavedConversationStore({

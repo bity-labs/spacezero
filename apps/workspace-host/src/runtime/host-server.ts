@@ -44,6 +44,8 @@ import { createGlobalChatSessionService } from "../features/global-chat-sessions
 import { GlobalChatSessionServiceError } from "../features/global-chat-sessions/global-chat-session.model.js";
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
+import { createGlobalChatInspectionWorkspaceTools } from "../features/workspace-tools/global-chat-inspection-tools.js";
+import { readWorkspaceSessionSnapshot } from "../features/workspace-tools/workspace-snapshot.repository.js";
 import {
   createFileCredentialStore,
   createPiPrivateSessionStateRepository,
@@ -289,11 +291,29 @@ export const startHostServer = async (options: {
     options.conversationRunner ?? piRuntimeServices.conversationRunner;
   await Effect.runPromise(runHostDatabaseMigrations(databasePath));
   const projectCatalog = createProjectCatalog(databasePath);
+  // Global Chat receives exactly the approved read-only inspection Workspace
+  // Tools; Project, Files, Git, worktree-scoped, credential, raw Pi,
+  // Host-internal, and app-state mutation tools are denied (ADR 0042).
+  const globalChatInspectionTools = createGlobalChatInspectionWorkspaceTools({
+    hostKind: "local",
+    getWorkspaceSnapshot: () => readWorkspaceSessionSnapshot(databasePath),
+    listProjectSummaries: async () =>
+      (await projectCatalog.list()).projects.map((project) => ({
+        id: project.id,
+        displayName: project.displayName,
+      })),
+    listGlobalChatSummaries: async () =>
+      (await globalChatSessions.list()).sessions,
+    getAgentRuntimeDefaults: async () =>
+      (await agentRuntimeDefaults.get()).defaults,
+    listAgentModels: () => modelCatalog.listModels(),
+  });
   const globalChatSessions = createGlobalChatSessionService({
     databasePath,
     conversationRunner,
     privatePiStateRepository,
     listSessionSkills: listGlobalChatSessionSkills,
+    inspectionTools: globalChatInspectionTools,
     ...(options.modelCatalog || !options.conversationRunner
       ? { modelCatalog }
       : {}),

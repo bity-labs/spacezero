@@ -571,7 +571,9 @@ describe("Global Chat Session Host protocol", () => {
     expect(body.turn).toMatchObject({ state: "running" });
     await waitFor(() => {
       expect(providerCalls).toBe(1);
-      expect(seenTools).toEqual([{ kind: "none", enabledToolNames: [] }]);
+      expect(
+        (seenTools as { kind: string }[]).map((tools) => tools.kind),
+      ).toEqual(["readOnlyInspection"]);
       expect(
         readRows<{ role: string; text: string; sequence: number }>(
           databasePath,
@@ -1463,11 +1465,9 @@ describe("Global Chat Session Host protocol", () => {
   it("archives and unarchives a completed Global Chat Session with durable events, projections, and receipts", async () => {
     const root = await temp();
     const databasePath = join(root, "host.sqlite");
-    const host = await start(
-      databasePath,
-      join(root, "SpaceZero"),
-      { submitTurn: async () => ({ text: "Global answer" }) },
-    );
+    const host = await start(databasePath, join(root, "SpaceZero"), {
+      submitTurn: async () => ({ text: "Global answer" }),
+    });
     const client = descriptor(host);
     const created = await createGlobalChatSession(
       host,
@@ -1607,7 +1607,10 @@ describe("Global Chat Session Host protocol", () => {
         sessionId,
       ),
     ).toEqual([
-      { event_type: "GlobalChatSessionArchivedV1", sequence: expect.any(Number) },
+      {
+        event_type: "GlobalChatSessionArchivedV1",
+        sequence: expect.any(Number),
+      },
       {
         event_type: "GlobalChatSessionUnarchivedV1",
         sequence: expect.any(Number),
@@ -1638,11 +1641,9 @@ describe("Global Chat Session Host protocol", () => {
   it("rejects interrupting an archived Global Chat Session turn like Project Sessions", async () => {
     const root = await temp();
     const databasePath = join(root, "host.sqlite");
-    const host = await start(
-      databasePath,
-      join(root, "SpaceZero"),
-      { submitTurn: async () => ({ text: "Global answer" }) },
-    );
+    const host = await start(databasePath, join(root, "SpaceZero"), {
+      submitTurn: async () => ({ text: "Global answer" }),
+    });
     const client = descriptor(host);
     const created = await createGlobalChatSession(
       host,
@@ -1920,7 +1921,12 @@ describe("Global Chat Session Host protocol", () => {
       ).toBe("completed");
     });
 
-    for (const title of ["", "   ", "first line\nsecond line", "x".repeat(61)]) {
+    for (const title of [
+      "",
+      "   ",
+      "first line\nsecond line",
+      "x".repeat(61),
+    ]) {
       const rejected = await renameGlobalChatSession(
         host,
         client.clientCapability,
@@ -2193,18 +2199,18 @@ describe("Global Chat Session Host protocol", () => {
     // disabled skill must be excluded without restarting the Host.
     await waitFor(() => {
       const resources = seenResources[0] as
-        | { skills?: { name: string; body: string }[] }
-        | undefined;
+        { skills?: { name: string; body: string }[] } | undefined;
       expect(resources?.skills?.map((entry) => entry.name)).toContain(
         "turn-resource-skill",
       );
       expect(
-        resources?.skills?.find(
-          (entry) => entry.name === "turn-resource-skill",
-        )?.body,
+        resources?.skills?.find((entry) => entry.name === "turn-resource-skill")
+          ?.body,
       ).toContain("Skill body for Pi expansion.");
     });
-    expect(seenTools).toEqual([{ kind: "none", enabledToolNames: [] }]);
+    expect(
+      (seenTools as { kind: string }[]).map((tools) => tools.kind),
+    ).toEqual(["readOnlyInspection"]);
 
     // Disabling a global skill must exclude it from new and reloaded turns.
     // Resources captured after the disable row is written must not include it.
@@ -2226,9 +2232,9 @@ describe("Global Chat Session Host protocol", () => {
         { headers: authHeaders(client.clientCapability) },
       )
     ).json()) as { skills: { name: string }[] };
-    expect(
-      afterListing.skills.map((entry) => entry.name),
-    ).not.toContain("disabled-skill");
+    expect(afterListing.skills.map((entry) => entry.name)).not.toContain(
+      "disabled-skill",
+    );
     for (const resources of seenResources.slice(seenBeforeDisable) as {
       skills?: { name: string }[];
     }[]) {
