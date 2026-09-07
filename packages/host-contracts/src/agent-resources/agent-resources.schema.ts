@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { GlobalChatSessionIdSchema } from "../global-chat-sessions/global-chat-session.schema.js";
 import { ProjectSessionIdSchema } from "../project-sessions/project-session.schema.js";
 
 export type AgentResourceScope =
@@ -28,6 +29,12 @@ export interface AgentResourceDiagnostic {
 }
 
 export interface ListProjectSessionSkillsResult {
+  readonly sessionId: string;
+  readonly skills: readonly AgentSkillDescriptor[];
+  readonly diagnostics: readonly AgentResourceDiagnostic[];
+}
+
+export interface ListGlobalChatSessionSkillsResult {
   readonly sessionId: string;
   readonly skills: readonly AgentSkillDescriptor[];
   readonly diagnostics: readonly AgentResourceDiagnostic[];
@@ -66,6 +73,16 @@ export const ListProjectSessionSkillsResultSchema = Schema.Struct({
   diagnostics: Schema.Array(AgentResourceDiagnosticSchema),
 });
 
+export const ListGlobalChatSessionSkillsResultSchema = Schema.Struct({
+  sessionId: GlobalChatSessionIdSchema,
+  skills: Schema.Array(AgentSkillDescriptorSchema),
+  diagnostics: Schema.Array(AgentResourceDiagnosticSchema),
+});
+
 export const parseListProjectSessionSkillsResult = Schema.decodeUnknownSync(
   ListProjectSessionSkillsResultSchema,
+);
+
+export const parseListGlobalChatSessionSkillsResult = Schema.decodeUnknownSync(
+  ListGlobalChatSessionSkillsResultSchema,
 );

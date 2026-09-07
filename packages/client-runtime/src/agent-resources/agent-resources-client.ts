@@ -8,8 +8,10 @@ import { HttpApiClient } from "effect/unstable/httpapi";
 import {
   HostApi,
   parseHostConnectionDescriptor,
+  parseListGlobalChatSessionSkillsResult,
   parseListProjectSessionSkillsResult,
   type HostConnectionDescriptor,
+  type ListGlobalChatSessionSkillsResult,
   type ListProjectSessionSkillsResult,
 } from "@spacezero/host-contracts";
 
@@ -17,6 +19,9 @@ export interface AgentResourcesClient {
   readonly listSessionSkills: (
     sessionId: string,
   ) => Promise<ListProjectSessionSkillsResult>;
+  readonly listGlobalChatSessionSkills: (
+    sessionId: string,
+  ) => Promise<ListGlobalChatSessionSkillsResult>;
 }
 
 export interface AgentResourcesClientOptions {
@@ -27,6 +32,10 @@ export interface AgentResourcesClientOptions {
 interface GeneratedAgentResourcesApiClient {
   readonly agentResources: {
     readonly listProjectSessionSkills: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly listGlobalChatSessionSkills: (input: {
       readonly headers: { readonly authorization: string };
       readonly params: { readonly sessionId: string };
     }) => Effect.Effect<unknown, unknown, never>;
@@ -82,6 +91,18 @@ export const createAgentResourcesClient = (
         }),
       );
       return parseListProjectSessionSkillsResult(
+        Array.isArray(result) ? result[0] : result,
+      );
+    },
+    listGlobalChatSessionSkills: async (sessionId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.agentResources.listGlobalChatSessionSkills({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+        }),
+      );
+      return parseListGlobalChatSessionSkillsResult(
         Array.isArray(result) ? result[0] : result,
       );
     },

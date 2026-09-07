@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -2046,5 +2046,195 @@ describe("Global Chat Session Host protocol", () => {
     expect(missing.body).toMatchObject({
       code: "global_chat_session_not_found",
     });
+  });
+
+  it("lists only approved global skills for Global Chat sessions with sanitized descriptors", async () => {
+    const root = await temp();
+    const spaceZeroHome = join(root, "SpaceZero");
+    const homeSkill = join(spaceZeroHome, "skills", "home-global");
+    await mkdir(homeSkill, { recursive: true });
+    // Project-local style roots colocated near Space Zero Home must never be
+    // scanned because Global Chat has no Project identity or trust context.
+    const decoys = [
+      join(spaceZeroHome, ".agents", "skills", "home-agents-decoy"),
+      join(spaceZeroHome, ".pi", "skills", "home-pi-decoy"),
+    ];
+    for (const [index, decoy] of decoys.entries()) {
+      await mkdir(decoy, { recursive: true });
+      await writeFile(
+        join(decoy, "SKILL.md"),
+        `---\nname: home-${index === 0 ? "agents" : "pi"}-decoy\ndescription: Decoy copy\n---\n\nDo the decoy thing.\n`,
+      );
+    }
+    await writeFile(
+      join(homeSkill, "SKILL.md"),
+      "---\nname: home-global\ndescription: Approved global skill.\n---\n\nDo the thing.\n",
+    );
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async () => ({ text: "Global answer" }),
+    };
+    const host = await start(databasePath, spaceZeroHome, runner);
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "List skills",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+
+    const response = await fetch(
+      new URL(`/v1/global-chat-sessions/${sessionId}/skills`, host.endpoint),
+      { headers: authHeaders(client.clientCapability) },
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      sessionId: string;
+      skills: Record<string, unknown>[];
+      diagnostics: unknown[];
+    };
+    expect(body.sessionId).toBe(sessionId);
+    const names = body.skills.map((entry) => entry.name);
+    expect(names).toContain("home-global");
+    expect(names).not.toContain("home-agents-decoy");
+    expect(names).not.toContain("home-pi-decoy");
+    for (const entry of body.skills) {
+      if (entry.name !== "home-global") continue;
+      expect(entry).toMatchObject({
+        name: "home-global",
+        description: "Approved global skill.",
+        scope: "spacezero_home",
+        enabled: true,
+        trusted: true,
+      });
+      expect(Object.keys(entry).sort()).toEqual([
+        "description",
+        "digest",
+        "enabled",
+        "name",
+        "scope",
+        "trusted",
+      ]);
+      expect(JSON.stringify(entry)).not.toContain("SKILL.md");
+      expect(JSON.stringify(entry)).not.toContain(spaceZeroHome);
+    }
+
+    const missing = await fetch(
+      new URL(`/v1/global-chat-sessions/${randomUUID()}/skills`, host.endpoint),
+      { headers: authHeaders(client.clientCapability) },
+    );
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({
+      code: "global_chat_session_not_found",
+    });
+
+    const unauthenticated = await fetch(
+      new URL(`/v1/global-chat-sessions/${sessionId}/skills`, host.endpoint),
+    );
+    expect(unauthenticated.status).toBe(401);
+  });
+
+  it("excludes disabled global skills from Global Chat listings and Pi Adapter turn resources", async () => {
+    const root = await temp();
+    const spaceZeroHome = join(root, "SpaceZero");
+    const skillDir = join(spaceZeroHome, "skills", "turn-resource-skill");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, "SKILL.md"),
+      "---\nname: turn-resource-skill\ndescription: Seeded for turn resources.\n---\n\nSkill body for Pi expansion.\n",
+    );
+    const disabledDir = join(spaceZeroHome, "skills", "disabled-skill");
+    await mkdir(disabledDir, { recursive: true });
+    await writeFile(
+      join(disabledDir, "SKILL.md"),
+      "---\nname: disabled-skill\ndescription: Disabled global skill.\n---\n\nShould never load.\n",
+    );
+    const databasePath = join(root, "host.sqlite");
+    const seenResources: unknown[] = [];
+    const seenTools: unknown[] = [];
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        seenResources.push(input.resources);
+        seenTools.push(input.tools);
+        return { text: "Global answer" };
+      },
+    };
+    const host = await start(databasePath, spaceZeroHome, runner);
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Use a skill",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+
+    const listing = (await (
+      await fetch(
+        new URL(`/v1/global-chat-sessions/${sessionId}/skills`, host.endpoint),
+        { headers: authHeaders(client.clientCapability) },
+      )
+    ).json()) as { skills: { name: string }[] };
+    expect(listing.skills.map((entry) => entry.name)).toContain(
+      "turn-resource-skill",
+    );
+
+    const db = new DatabaseSync(databasePath);
+    try {
+      db.exec(
+        "INSERT INTO skill_preferences (skill_name, enabled, updated_at) VALUES ('disabled-skill', 0, '2026-01-01T00:00:00.000Z')",
+      );
+    } finally {
+      db.close();
+    }
+
+    // New and reloaded sessions run turns through fresh discovery, so the
+    // disabled skill must be excluded without restarting the Host.
+    await waitFor(() => {
+      const resources = seenResources[0] as
+        | { skills?: { name: string; body: string }[] }
+        | undefined;
+      expect(resources?.skills?.map((entry) => entry.name)).toContain(
+        "turn-resource-skill",
+      );
+      expect(
+        resources?.skills?.find(
+          (entry) => entry.name === "turn-resource-skill",
+        )?.body,
+      ).toContain("Skill body for Pi expansion.");
+    });
+    expect(seenTools).toEqual([{ kind: "none", enabledToolNames: [] }]);
+
+    // Disabling a global skill must exclude it from new and reloaded turns.
+    // Resources captured after the disable row is written must not include it.
+    const seenBeforeDisable = seenResources.length;
+
+    const submitted = await submitGlobalChatPrompt(
+      host,
+      client.clientCapability,
+      sessionId,
+      "Second turn",
+    );
+    expect(submitted.response.status).toBe(200);
+    await waitFor(() => {
+      expect(seenResources.length).toBeGreaterThan(seenBeforeDisable);
+    });
+    const afterListing = (await (
+      await fetch(
+        new URL(`/v1/global-chat-sessions/${sessionId}/skills`, host.endpoint),
+        { headers: authHeaders(client.clientCapability) },
+      )
+    ).json()) as { skills: { name: string }[] };
+    expect(
+      afterListing.skills.map((entry) => entry.name),
+    ).not.toContain("disabled-skill");
+    for (const resources of seenResources.slice(seenBeforeDisable) as {
+      skills?: { name: string }[];
+    }[]) {
+      expect(resources.skills?.map((entry) => entry.name)).not.toContain(
+        "disabled-skill",
+      );
+    }
   });
 });
