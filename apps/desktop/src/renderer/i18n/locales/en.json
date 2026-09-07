@@ -43,6 +43,7 @@
     "noArchivedChatsTitle": "No archived chats",
     "noArchivedChatsDescription": "Archived chats are history-only until you unarchive them.",
     "loadingChats": "Loading chats",
+    "loadMoreChats": "Load more chats",
     "allChatsLoadError": "Could not load chats.",
     "archivedReadOnly": "Archived. This chat is read-only until you unarchive it.",
     "unarchiveToContinue": "Unarchive to continue",

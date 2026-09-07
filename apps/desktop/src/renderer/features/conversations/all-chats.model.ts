@@ -1,14 +1,49 @@
-import type {
-  GlobalChatSessionMessage,
-  GlobalChatSessionSummary,
+import {
+  GLOBAL_CHAT_SESSIONS_PAGE_SIZE,
+  type ListGlobalChatSessionsResult,
+  type GlobalChatSessionSummary,
 } from "@spacezero/host-contracts";
 
 export type AllChatsTabId = "unarchived" | "archived";
+
+/** All Chats loads Global Chat Sessions 20 per page (PRD #516, issue #586). */
+export const ALL_CHATS_PAGE_SIZE = GLOBAL_CHAT_SESSIONS_PAGE_SIZE;
 
 export const ALL_CHATS_TABS: readonly { readonly id: AllChatsTabId }[] = [
   { id: "unarchived" },
   { id: "archived" },
 ];
+
+/** Accumulated pagination state for one All Chats tab. */
+export interface AllChatsTabPage {
+  readonly sessions: readonly GlobalChatSessionSummary[];
+  /** Offset for the next page; absent once no more pages remain. */
+  readonly nextOffset?: number;
+}
+
+export const emptyAllChatsTabPage: AllChatsTabPage = { sessions: [] };
+
+/**
+ * Appends one batched Host page to a tab's accumulated pagination state.
+ * Sessions arrive Host-ordered per tab semantics; duplicates are dropped so
+ * overlapping pages stay stable, and continuation stops on the last page.
+ */
+export function appendChatSessionPage(
+  state: AllChatsTabPage,
+  page: ListGlobalChatSessionsResult,
+): AllChatsTabPage {
+  const known = new Set(state.sessions.map((session) => session.id));
+  return {
+    sessions: [
+      ...state.sessions,
+      ...page.sessions.filter((session) => !known.has(session.id)),
+    ],
+    ...(page.pageInfo?.hasMore === true &&
+    page.pageInfo.nextOffset !== undefined
+      ? { nextOffset: page.pageInfo.nextOffset }
+      : {}),
+  };
+}
 
 const byUpdatedAtDescending = (
   a: GlobalChatSessionSummary,
@@ -43,59 +78,6 @@ export function selectArchivedSessions(
         return bArchivedAt.localeCompare(aArchivedAt);
       return b.updatedAt.localeCompare(a.updatedAt);
     });
-}
-
-/**
- * Derives the last-message preview from a session message: the most recent
- * message from either user or assistant, rendered as its first non-empty
- * line.
- */
-export function deriveLastMessagePreview(
-  message: GlobalChatSessionMessage | undefined,
-): string {
-  if (!message) return "";
-  const firstNonEmptyLine = (text: string): string => {
-    const line = text
-      .split(/\r\n|\n|\r/u)
-      .map((value) => value.trim())
-      .find((value) => value.length > 0);
-    return line ?? "";
-  };
-  const fromText = firstNonEmptyLine(message.text);
-  if (fromText.length > 0) return fromText;
-  const partText = (message.parts ?? [])
-    .filter((part) => part.type === "text")
-    .map((part) => (part.type === "text" ? part.text : ""))
-    .join(" ");
-  return firstNonEmptyLine(partText);
-}
-
-/**
- * Loads the last-message preview for each session by reading the newest
- * message (`limit: 1`) of every session through the existing per-session
- * messages endpoint. Returns a map of session id to preview; sessions without
- * a readable last message have no entry.
- */
-export async function loadAllChatPreviews(
-  sessions: readonly GlobalChatSessionSummary[],
-  listLastMessage: (
-    sessionId: string,
-  ) => Promise<GlobalChatSessionMessage | undefined>,
-): Promise<ReadonlyMap<string, string>> {
-  const entries = await Promise.all(
-    sessions.map(async (session) => {
-      try {
-        const message = await listLastMessage(session.id);
-        const preview = deriveLastMessagePreview(message);
-        return preview.length > 0
-          ? ([session.id, preview] as const)
-          : undefined;
-      } catch {
-        return undefined;
-      }
-    }),
-  );
-  return new Map(entries.filter((entry) => entry !== undefined));
 }
 
 const relativeUnits: readonly {

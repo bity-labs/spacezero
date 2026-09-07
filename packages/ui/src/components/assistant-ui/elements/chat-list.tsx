@@ -42,6 +42,13 @@ export interface ChatListScreenProps {
   unarchiveRowLabel?: string;
   onArchiveRow?: (id: string) => void | Promise<void>;
   onUnarchiveRow?: (id: string) => void | Promise<void>;
+  /** Continuation state for paginated lists: renders a Load more button when more rows exist. */
+  hasMoreRows?: boolean;
+  /** Whether the next page is currently being fetched. */
+  loadingMoreRows?: boolean;
+  /** Accessible label for the Load more affordance. */
+  loadMoreRowsLabel?: string;
+  onLoadMoreRows?: () => void;
   className?: string;
 }
 
@@ -62,6 +69,10 @@ const ChatListScreen = ({
   unarchiveRowLabel,
   onArchiveRow,
   onUnarchiveRow,
+  hasMoreRows = false,
+  loadingMoreRows = false,
+  loadMoreRowsLabel,
+  onLoadMoreRows,
   className,
   ...props
 }: ChatListScreenProps & ComponentProps<"section">) => (
@@ -188,6 +199,18 @@ const ChatListScreen = ({
           </ul>
         )}
       </div>
+      {onLoadMoreRows && hasMoreRows ? (
+        <div className="flex justify-center pb-6">
+          <button
+            type="button"
+            className="ring-primary text-primary hover:bg-primary/10 rounded-lg px-3 py-1.5 text-sm font-medium ring-1 focus-visible:ring-2 focus-visible:outline-none disabled:cursor-wait disabled:opacity-60"
+            onClick={onLoadMoreRows}
+            disabled={loadingMoreRows}
+          >
+            {loadMoreRowsLabel ?? "Load more"}
+          </button>
+        </div>
+      ) : null}
     </div>
   </section>
 );

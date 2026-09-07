@@ -965,7 +965,7 @@ export const startHostServer = async (options: {
             globalChatSessions.createWithFirstPrompt(payload),
           ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
-        listGlobalChatSessions: ({ headers, request }) => {
+        listGlobalChatSessions: ({ headers, request, query }) => {
           try {
             auth(
               headers.authorization,
@@ -977,7 +977,7 @@ export const startHostServer = async (options: {
           } catch (error) {
             return Effect.fail(error as HostAuthorizationError);
           }
-          return effectPromise(() => globalChatSessions.list()).pipe(
+          return effectPromise(() => globalChatSessions.list(query ?? {})).pipe(
             Effect.mapError(globalChatSessionHttpError),
           );
         },

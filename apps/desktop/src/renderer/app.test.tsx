@@ -666,9 +666,10 @@ describe("App", () => {
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
       "All chats",
     );
-    expect(
-      screen.getByRole("tab", { name: "Unarchived" }),
-    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Unarchived" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(screen.getByText("No chats yet")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Archived" })).toBeInTheDocument();
   });
@@ -702,6 +703,8 @@ describe("App", () => {
                 createdAt: timestamp,
                 updatedAt: timestamp,
                 lastSequence: 2,
+                // Batched preview now rides on the list response (issue #586).
+                lastMessagePreview: "Global saved answer",
               },
               {
                 id: archivedChatSessionId,
@@ -815,8 +818,10 @@ describe("App", () => {
             status: "ready",
           });
         if (parsed.pathname === "/v1/events") return hostConnectedStream();
-        if (parsed.pathname === "/v1/global-chat-sessions" &&
-          request.method === "GET")
+        if (
+          parsed.pathname === "/v1/global-chat-sessions" &&
+          request.method === "GET"
+        )
           return json({ sessions: [sessionSummary()] });
         if (
           parsed.pathname ===
@@ -887,9 +892,7 @@ describe("App", () => {
       within(sidebar).getByRole("button", { name: "Global prompt" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(
-      within(surface).getByRole("button", { name: "Archive" }),
-    );
+    fireEvent.click(within(surface).getByRole("button", { name: "Archive" }));
 
     const archiveRequest = await waitFor(() => {
       const request = archiveRequests.at(-1);

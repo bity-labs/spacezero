@@ -1,6 +1,9 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  GLOBAL_CHAT_SESSIONS_PAGE_SIZE,
+  ListGlobalChatSessionsPageQuerySchema,
+  ListGlobalChatSessionsResultSchema,
   CreateGlobalChatSessionWithFirstPromptRequestSchema,
   CreateGlobalChatSessionWithFirstPromptResultSchema,
   GlobalChatSessionEventSchema,
@@ -303,9 +306,9 @@ describe("Global Chat Session schemas", () => {
         title: "  Renamed chat  ",
       }),
     ).toEqual({ commandId: uuid, title: "  Renamed chat  " });
-    expect(
-      parseSync(RenameGlobalChatSessionResultSchema)({ session }),
-    ).toEqual({ session });
+    expect(parseSync(RenameGlobalChatSessionResultSchema)({ session })).toEqual(
+      { session },
+    );
     expect(
       parseSync(GlobalChatSessionEventSchema)({
         type: "GlobalChatSessionRenamedV1",
@@ -315,7 +318,10 @@ describe("Global Chat Session schemas", () => {
         title: "Renamed chat",
         timestamp: "2026-01-02T03:04:07.000Z",
       }),
-    ).toMatchObject({ type: "GlobalChatSessionRenamedV1", title: "Renamed chat" });
+    ).toMatchObject({
+      type: "GlobalChatSessionRenamedV1",
+      title: "Renamed chat",
+    });
     expect(() =>
       parseSync(GlobalChatSessionEventSchema)({
         type: "GlobalChatSessionRenamedV1",
@@ -348,8 +354,12 @@ describe("Global Chat Session schemas", () => {
     expect(globalChatSessionTitleProblem("🧪".repeat(121))).toMatchObject({
       problem: "too_long",
     });
-    expect(globalChatSessionTitleProblem("a".repeat(119) + "\u00e9")).toBeUndefined();
-    expect(globalChatSessionTitleProblem("a".repeat(120) + "\u00e9")).toMatchObject({
+    expect(
+      globalChatSessionTitleProblem("a".repeat(119) + "\u00e9"),
+    ).toBeUndefined();
+    expect(
+      globalChatSessionTitleProblem("a".repeat(120) + "\u00e9"),
+    ).toMatchObject({
       problem: "too_long",
     });
   });
@@ -459,9 +469,9 @@ describe("Global Chat Session schemas", () => {
       revision: 2,
     };
 
-    expect(parseSync(GlobalChatSessionRuntimeConfigurationSchema)(runtime)).toEqual(
-      runtime,
-    );
+    expect(
+      parseSync(GlobalChatSessionRuntimeConfigurationSchema)(runtime),
+    ).toEqual(runtime);
 
     // Rejected descriptors: non-positive revisions and unknown thinking levels.
     expect(() =>
@@ -517,9 +527,9 @@ describe("Global Chat Session schemas", () => {
       expectedRevision: 1,
     };
 
-    expect(parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)(request)).toEqual(
-      request,
-    );
+    expect(
+      parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)(request),
+    ).toEqual(request);
     expect(() =>
       parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)({
         ...request,
@@ -533,7 +543,9 @@ describe("Global Chat Session schemas", () => {
       defaultThinkingLevel: request.defaultThinkingLevel,
     };
     expect(() =>
-      parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)(requestWithoutRevision),
+      parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)(
+        requestWithoutRevision,
+      ),
     ).toThrow();
   });
 
@@ -579,13 +591,119 @@ describe("Global Chat Session schemas", () => {
         "This Global Chat Session runtime configuration changed. Reload and try again.",
     };
 
-    expect(parseSync(GlobalChatSessionRuntimeRevisionConflictErrorSchema)(body)).toEqual(
-      body,
-    );
+    expect(
+      parseSync(GlobalChatSessionRuntimeRevisionConflictErrorSchema)(body),
+    ).toEqual(body);
     expect(() =>
       parseSync(GlobalChatSessionRuntimeRevisionConflictErrorSchema)({
         code: "global_chat_session_archived",
         message: "Not a revision conflict.",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("Global Chat Session batched list page", () => {
+  it("exposes the required 20-per-page default page size", () => {
+    expect(GLOBAL_CHAT_SESSIONS_PAGE_SIZE).toBe(20);
+  });
+
+  it("accepts a paged list query without parameters", () => {
+    expect(parseSync(ListGlobalChatSessionsPageQuerySchema)({})).toEqual({});
+  });
+
+  it("decodes the paged list query from URL query strings", () => {
+    expect(
+      parseSync(ListGlobalChatSessionsPageQuerySchema)({
+        archived: "true",
+        limit: "20",
+        offset: "40",
+      }),
+    ).toEqual({ archived: true, limit: 20, offset: 40 });
+  });
+
+  it("round-trips the archived flag through the wire encoding", () => {
+    const decoded = parseSync(ListGlobalChatSessionsPageQuerySchema)({
+      archived: "false",
+    });
+    expect(decoded).toEqual({ archived: false });
+    expect(
+      Schema.encodeSync(ListGlobalChatSessionsPageQuerySchema)(decoded),
+    ).toEqual({ archived: "false" });
+  });
+
+  it("rejects invalid paged list query parameters", () => {
+    expect(() =>
+      parseSync(ListGlobalChatSessionsPageQuerySchema)({ limit: "0" }),
+    ).toThrow();
+    expect(() =>
+      parseSync(ListGlobalChatSessionsPageQuerySchema)({ limit: "101" }),
+    ).toThrow();
+    expect(() =>
+      parseSync(ListGlobalChatSessionsPageQuerySchema)({ limit: "many" }),
+    ).toThrow();
+    expect(() =>
+      parseSync(ListGlobalChatSessionsPageQuerySchema)({ offset: "-1" }),
+    ).toThrow();
+    expect(() =>
+      parseSync(ListGlobalChatSessionsPageQuerySchema)({ archived: "yes" }),
+    ).toThrow();
+  });
+
+  it("accepts batched summaries with a sanitized last-message preview and continuation state", () => {
+    const archivedSummary = {
+      ...session,
+      archived: true,
+      archivedAt: "2026-01-02T00:00:00.000Z",
+      lastMessagePreview: "Global answer.",
+    };
+    const parsed = parseSync(ListGlobalChatSessionsResultSchema)({
+      sessions: [archivedSummary, session],
+      pageInfo: { pageSize: 2, hasMore: false },
+    });
+
+    expect(parsed.sessions).toHaveLength(2);
+    expect(parsed.sessions[0]).toMatchObject({
+      id: uuid,
+      archived: true,
+      lastMessagePreview: "Global answer.",
+    });
+    // Summaries without a last message stay preview-less.
+    expect(parsed.sessions[1]).not.toHaveProperty("lastMessagePreview");
+    expect(parsed.pageInfo).toEqual({ pageSize: 2, hasMore: false });
+  });
+
+  it("keeps the legacy full-list result valid without pagination state", () => {
+    const parsed = parseSync(ListGlobalChatSessionsResultSchema)({
+      sessions: [session],
+    });
+
+    expect(parsed.sessions).toEqual([session]);
+    expect(parsed).not.toHaveProperty("pageInfo");
+  });
+
+  it("rejects malformed previews and continuation state", () => {
+    expect(() =>
+      parseSync(ListGlobalChatSessionsResultSchema)({
+        sessions: [{ ...session, lastMessagePreview: { text: "structured" } }],
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(ListGlobalChatSessionsResultSchema)({
+        sessions: [session],
+        pageInfo: { pageSize: -1, hasMore: false },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(ListGlobalChatSessionsResultSchema)({
+        sessions: [session],
+        pageInfo: { pageSize: 1, hasMore: "no" },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(ListGlobalChatSessionsResultSchema)({
+        sessions: [session],
+        pageInfo: { pageSize: 1, hasMore: false, nextOffset: -20 },
       }),
     ).toThrow();
   });
