@@ -1635,6 +1635,56 @@ describe("Global Chat Session Host protocol", () => {
     });
   });
 
+  it("rejects interrupting an archived Global Chat Session turn like Project Sessions", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const host = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "Global answer" }) },
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Interrupt me after archiving",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    const turnId = (created.body as { turn: { id: string } }).turn.id;
+    await waitFor(() => {
+      expect(
+        readRows<{ state: string }>(
+          databasePath,
+          "SELECT state FROM chat_session_turns WHERE session_id = ?",
+          sessionId,
+        )[0]?.state,
+      ).toBe("completed");
+    });
+
+    const archived = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+    );
+    expect(archived.response.status).toBe(200);
+
+    // Archived sessions cannot have an active turn because archiving is
+    // rejected while a turn is in progress, so interruption is rejected with
+    // the same typed error used for non-active turns, matching Project
+    // Session interrupt semantics.
+    const rejectedInterrupt = await interruptGlobalChatTurn(
+      host,
+      client.clientCapability,
+      sessionId,
+      turnId,
+    );
+    expect(rejectedInterrupt.response.status).toBe(409);
+    expect(rejectedInterrupt.body).toMatchObject({
+      code: "turn_not_active",
+    });
+  });
+
   it("rejects archiving a Global Chat Session while an agent turn is in progress", async () => {
     const root = await temp();
     let partialEmitted!: () => void;

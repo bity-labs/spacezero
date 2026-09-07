@@ -6,9 +6,12 @@ import {
   type ThreadMessage,
 } from "@assistant-ui/react";
 import { Thread, type ThreadViewState } from "@spacezero/ui/components/thread";
+import { ErrorState } from "@spacezero/ui/components/assistant-ui/elements/error-state";
+import { StoppedRun } from "@spacezero/ui/components/assistant-ui/elements/stopped-run";
 import {
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
   type ReactElement,
 } from "react";
@@ -173,15 +176,6 @@ const ConversationStatusBanner = ({
         work will not continue until recovery.
       </div>
     );
-  if (projection.runtime.status === "failed")
-    return (
-      <div
-        role="alert"
-        className="border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-      >
-        Latest agent turn failed.
-      </div>
-    );
   if (projection.runtime.status === "running")
     return (
       <div
@@ -194,12 +188,63 @@ const ConversationStatusBanner = ({
   return null;
 };
 
+const failedTurnRetryPrompt = (
+  projection: SavedConversationProjection,
+): string | undefined => {
+  if (
+    projection.runtime.status !== "failed" ||
+    projection.runtime.latestTurnId === undefined
+  )
+    return undefined;
+  const prompt = [...projection.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "user" &&
+        message.turnId === projection.runtime.latestTurnId,
+    );
+  const text = prompt?.text.trim();
+  return text === undefined || text.length === 0 ? undefined : text;
+};
+
+interface InterruptedRunNotice {
+  readonly words: readonly string[];
+  /**
+   * The partial assistant message is presented through StoppedRun instead of a
+   * transcript row, so it must be removed from the messages handed to the
+   * runtime to avoid duplicated text.
+   */
+  readonly replacedMessageId?: string;
+}
+
+const interruptedRun = (
+  projection: SavedConversationProjection,
+): InterruptedRunNotice | undefined => {
+  if (projection.runtime.status !== "interrupted") return undefined;
+  const latestTurnId = projection.runtime.latestTurnId;
+  const partial = [...projection.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "assistant" &&
+        (latestTurnId === undefined || message.turnId === latestTurnId),
+    );
+  if (!partial || partial.text.length === 0) return { words: [] };
+  const isTextOnly =
+    partial.parts.length > 0 &&
+    partial.parts.every((part) => part.type === "text");
+  return isTextOnly
+    ? { words: [partial.text], replacedMessageId: partial.id }
+    : { words: [] };
+};
+
 export function SavedConversationThread({
   store,
 }: {
   readonly store: SavedConversationStore;
 }): ReactElement {
   const projection = useSavedConversationSnapshot(store);
+  const [retrying, setRetrying] = useState(false);
   const sessionKey = `${projection.session.kind}:${projection.session.id}`;
   const activeStopTarget = useMemo(
     () =>
@@ -216,15 +261,37 @@ export function SavedConversationThread({
       projection.session.id,
     ],
   );
+  const retryPrompt = useMemo(
+    () => failedTurnRetryPrompt(projection),
+    [projection],
+  );
+  const interrupted = useMemo(() => interruptedRun(projection), [projection]);
 
   useEffect(() => {
     void store.load().catch(() => undefined);
     return () => store.dispose();
   }, [store]);
 
+  const retryFailedTurn = () => {
+    if (retryPrompt === undefined || retrying) return;
+    // Host-backed retry only: resubmit the failed turn's original prompt as a
+    // real Host prompt command; never fabricate a local turn. The retrying
+    // state stays visible only while that Host request is in flight.
+    setRetrying(true);
+    void store
+      .send(retryPrompt)
+      .catch(() => undefined)
+      .finally(() => setRetrying(false));
+  };
+
   const adapter = useMemo(
     () => ({
-      messages: projection.messages,
+      messages:
+        interrupted?.replacedMessageId === undefined
+          ? projection.messages
+          : projection.messages.filter(
+              (message) => message.id !== interrupted.replacedMessageId,
+            ),
       isDisabled: projection.actions.send === "unavailable",
       isSendDisabled:
         projection.actions.send === "unavailable" ||
@@ -282,7 +349,7 @@ export function SavedConversationThread({
         toAssistantThreadMessage(message, projection),
       unstable_enableToolInvocations: false,
     }),
-    [activeStopTarget, projection, store],
+    [activeStopTarget, interrupted, projection, store],
   );
   const runtime = useExternalStoreRuntime(adapter);
 
@@ -290,6 +357,28 @@ export function SavedConversationThread({
     <AssistantRuntimeProvider key={sessionKey} runtime={runtime}>
       <div className="flex min-h-0 flex-1 flex-col">
         <ConversationStatusBanner projection={projection} />
+        {projection.runtime.status === "failed" ? (
+          <div className="border-b border-border px-4 py-3">
+            <ErrorState
+              title="Assistant turn failed"
+              detail={
+                retryPrompt === undefined
+                  ? "The latest agent turn failed and no original prompt is available to retry."
+                  : "Retry resends the failed turn's original prompt to the Host."
+              }
+              retrying={retrying}
+              {...(retryPrompt === undefined
+                ? {}
+                : { onRetry: retryFailedTurn })}
+            />
+          </div>
+        ) : null}
+        {projection.runtime.status === "interrupted" &&
+        interrupted !== undefined ? (
+          <div className="border-b border-border px-4 py-3">
+            <StoppedRun words={interrupted.words} reason="Interrupted" />
+          </div>
+        ) : null}
         <Thread
           state={threadState(projection.status)}
           {...(projection.error?.message === undefined
