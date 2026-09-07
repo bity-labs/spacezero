@@ -34,6 +34,7 @@ const sessionId = "22222222-2222-4222-8222-222222222222";
 const turnId = "33333333-3333-4333-8333-333333333333";
 const userMessageId = "44444444-4444-4444-8444-444444444444";
 const assistantMessageId = "55555555-5555-4555-8555-555555555555";
+const followUpId = "66666666-6666-4666-8666-666666666666";
 const timestamp = "2026-01-01T00:00:00.000Z";
 
 const createResult = {
@@ -408,6 +409,188 @@ describe("Global Chat Session client", () => {
       code: "global_chat_session_runtime_revision_conflict",
       message:
         "This Global Chat Session runtime configuration changed. Reload and try again.",
+    });
+  });
+
+  it("lists Global Chat Session follow-ups through the generated Host API", async () => {
+    const followUp = {
+      id: followUpId,
+      commandId,
+      sessionId,
+      prompt: "Queued follow-up",
+      state: "queued",
+      position: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/follow-ups`,
+        );
+        expect(request.method).toBe("GET");
+        expect(request.headers.get("authorization")).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json({ session: createResult.session, followUps: [followUp] });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(client.listFollowUps(sessionId)).resolves.toEqual({
+      session: createResult.session,
+      followUps: [followUp],
+    });
+  });
+
+  it("enqueues a Global Chat Session follow-up with a stable command ID", async () => {
+    const followUp = {
+      id: followUpId,
+      commandId,
+      sessionId,
+      prompt: "Queued follow-up",
+      state: "queued",
+      position: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/follow-ups`,
+        );
+        expect(request.method).toBe("POST");
+        expect(request.headers.get("authorization")).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        expect(await request.json()).toEqual({
+          commandId,
+          prompt: "Queued follow-up",
+        });
+        return json({ session: createResult.session, followUp });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => commandId,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.enqueueFollowUp(sessionId, "Queued follow-up"),
+    ).resolves.toEqual({ session: createResult.session, followUp });
+  });
+
+  it("cancels a queued Global Chat Session follow-up and propagates typed cancel errors", async () => {
+    const followUp = {
+      id: followUpId,
+      commandId,
+      sessionId,
+      prompt: "Queued follow-up",
+      state: "cancelled",
+      position: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/follow-ups/${followUpId}/cancel`,
+        );
+        expect(request.method).toBe("POST");
+        expect(request.headers.get("authorization")).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json({ session: createResult.session, followUp });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(client.cancelFollowUp(sessionId, followUpId)).resolves.toEqual(
+      { session: createResult.session, followUp },
+    );
+
+    const rejectingClient = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: (async () =>
+        json(
+          {
+            code: "follow_up_not_cancellable",
+            message:
+              "The selected follow-up can no longer be cancelled.",
+          },
+          { status: 409 },
+        )) as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      rejectingClient.cancelFollowUp(sessionId, followUpId),
+    ).rejects.toMatchObject({
+      code: "follow_up_not_cancellable",
+      message: "The selected follow-up can no longer be cancelled.",
+    });
+  });
+
+  it("interrupts the active Global Chat Session turn through the generated Host API", async () => {
+    const interruptedTurn = {
+      ...createResult.turn,
+      state: "interrupted",
+    };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/turns/${turnId}/interrupt`,
+        );
+        expect(request.method).toBe("POST");
+        expect(request.headers.get("authorization")).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json({ session: createResult.session, turn: interruptedTurn });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.interruptTurn(sessionId, turnId),
+    ).resolves.toEqual({
+      session: createResult.session,
+      turn: interruptedTurn,
+    });
+  });
+
+  it("propagates typed turn-not-active errors from interruption", async () => {
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: (async () =>
+        json(
+          {
+            code: "turn_not_active",
+            message: "The selected agent turn is not currently running.",
+          },
+          { status: 409 },
+        )) as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(client.interruptTurn(sessionId, turnId)).rejects.toMatchObject({
+      code: "turn_not_active",
+      message: "The selected agent turn is not currently running.",
     });
   });
 });
