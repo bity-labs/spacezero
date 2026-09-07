@@ -297,4 +297,117 @@ describe("Global Chat Session client", () => {
         "Chat titles cannot be empty and must be 60 characters or fewer on a single line.",
     });
   });
+
+  it("reads a Global Chat Session runtime through the generated Host API", async () => {
+    const runtime = {
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "high",
+      revision: 2,
+    };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/runtime`,
+        );
+        expect(request.method).toBe("GET");
+        expect(request.headers.get("authorization")).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json({ session: createResult.session, runtime });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(client.getRuntime(sessionId)).resolves.toEqual({
+      session: createResult.session,
+      runtime,
+    });
+  });
+
+  it("updates a Global Chat Session runtime with expected revision semantics", async () => {
+    const updatedRuntime = {
+      providerId: "openai",
+      modelId: "gpt-5",
+      defaultThinkingLevel: "high",
+      revision: 3,
+    };
+    const requests: Request[] = [];
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        requests.push(request);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/runtime`,
+        );
+        expect(request.method).toBe("PUT");
+        expect(request.headers.get("authorization")).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json({ session: createResult.session, runtime: updatedRuntime });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => commandId,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.updateRuntime(sessionId, {
+        providerId: "openai",
+        modelId: "gpt-5",
+        defaultThinkingLevel: "high",
+        expectedRevision: 2,
+      }),
+    ).resolves.toEqual({
+      session: createResult.session,
+      runtime: updatedRuntime,
+    });
+
+    const request = requests[0];
+    expect(request).toBeDefined();
+    await expect(request!.json()).resolves.toEqual({
+      commandId,
+      providerId: "openai",
+      modelId: "gpt-5",
+      defaultThinkingLevel: "high",
+      expectedRevision: 2,
+    });
+  });
+
+  it("propagates typed runtime revision conflict errors", async () => {
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => commandId,
+      fetch: (async () =>
+        json(
+          {
+            code: "global_chat_session_runtime_revision_conflict",
+            message:
+              "This Global Chat Session runtime configuration changed. Reload and try again.",
+          },
+          { status: 409 },
+        )) as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.updateRuntime(sessionId, {
+        providerId: "openai",
+        modelId: "gpt-5",
+        defaultThinkingLevel: "high",
+        expectedRevision: 1,
+      }),
+    ).rejects.toMatchObject({
+      code: "global_chat_session_runtime_revision_conflict",
+      message:
+        "This Global Chat Session runtime configuration changed. Reload and try again.",
+    });
+  });
 });

@@ -194,6 +194,45 @@ const getGlobalChatSessionRuntime = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const updateGlobalChatSessionRuntime = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  input: {
+    readonly providerId: string;
+    readonly modelId: string;
+    readonly defaultThinkingLevel: string;
+    readonly expectedRevision: number;
+  },
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/runtime`, host.endpoint),
+    {
+      method: "PUT",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId, ...input }),
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
+const submitGlobalChatPrompt = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  prompt: string,
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/prompts`, host.endpoint),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId, prompt }),
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
 const listProjectSessions = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -518,6 +557,174 @@ describe("Session creation seeds runtime from Host-global defaults", () => {
     expect(created.body).toMatchObject({
       code: "agent_default_model_missing",
       message: expect.stringContaining("No default agent model"),
+    });
+  });
+});
+
+describe("Global Chat Session runtime revision semantics and turn snapshots", () => {
+  it("rejects stale runtime updates with the typed revision conflict error", async () => {
+    const root = await temp();
+    const { host, descriptor } = await start(root);
+
+    const seeded = await updateDefaults(descriptor, {
+      defaultModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+      defaultThinkingLevel: "low",
+    });
+    expect(seeded.response.status).toBe(200);
+
+    const created = await createGlobalChatSession(
+      host,
+      descriptor.clientCapability,
+      "Conflicting runtime update",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (
+      created.body as { session: { id: string } }
+    ).session.id;
+
+    // The first-prompt turn must complete before runtime updates are allowed.
+    await waitFor(() => {
+      const turns = readRows<{ state: string }>(
+        join(root, "host.sqlite"),
+        "SELECT state FROM chat_session_turns WHERE session_id = ?",
+        sessionId,
+      );
+      expect(turns[0]?.state).toBe("completed");
+    });
+
+    const stale = await updateGlobalChatSessionRuntime(
+      host,
+      descriptor.clientCapability,
+      sessionId,
+      {
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        defaultThinkingLevel: "high",
+        expectedRevision: 99,
+      },
+    );
+    expect(stale.response.status).toBe(409);
+    expect(stale.body).toMatchObject({
+      code: "global_chat_session_runtime_revision_conflict",
+      message: expect.stringContaining("runtime configuration changed"),
+    });
+
+    // The rejected update leaves the seeded runtime and revision untouched.
+    const runtime = await getGlobalChatSessionRuntime(
+      host,
+      descriptor.clientCapability,
+      sessionId,
+    );
+    expect(runtime.response.status).toBe(200);
+    expectRuntime(runtime.body, {
+      providerId: "anthropic",
+      modelId: "claude-haiku-4-5",
+      defaultThinkingLevel: "low",
+      revision: 1,
+    });
+
+    const applied = await updateGlobalChatSessionRuntime(
+      host,
+      descriptor.clientCapability,
+      sessionId,
+      {
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        defaultThinkingLevel: "high",
+        expectedRevision: 1,
+      },
+    );
+    expect(applied.response.status).toBe(200);
+    expectRuntime(applied.body, {
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "high",
+      revision: 2,
+    });
+  });
+
+  it("snapshots the effective runtime on every admitted Global Chat turn", async () => {
+    const root = await temp();
+    const { host, descriptor } = await start(root);
+
+    const seeded = await updateDefaults(descriptor, {
+      defaultModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+      defaultThinkingLevel: "low",
+    });
+    expect(seeded.response.status).toBe(200);
+
+    const created = await createGlobalChatSession(
+      host,
+      descriptor.clientCapability,
+      "Snapshot the first turn",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (
+      created.body as { session: { id: string } }
+    ).session.id;
+
+    await waitFor(() => {
+      const turns = readRows<{ state: string }>(
+        join(root, "host.sqlite"),
+        "SELECT state FROM chat_session_turns WHERE session_id = ?",
+        sessionId,
+      );
+      expect(turns[0]?.state).toBe("completed");
+    });
+
+    const overridden = await updateGlobalChatSessionRuntime(
+      host,
+      descriptor.clientCapability,
+      sessionId,
+      {
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        defaultThinkingLevel: "high",
+        expectedRevision: 1,
+      },
+    );
+    expect(overridden.response.status).toBe(200);
+
+    const submitted = await submitGlobalChatPrompt(
+      host,
+      descriptor.clientCapability,
+      sessionId,
+      "Snapshot the second turn",
+    );
+    expect(submitted.response.status).toBe(200);
+    expect(submitted.body).toMatchObject({
+      turn: {
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "high",
+      },
+    });
+
+    // Both admitted turns persist their own effective runtime snapshot.
+    await waitFor(() => {
+      const turns = readRows<{
+        provider_id: string;
+        model_id: string;
+        thinking_level: string;
+        state: string;
+      }>(
+        join(root, "host.sqlite"),
+        "SELECT provider_id, model_id, thinking_level, state FROM chat_session_turns WHERE session_id = ? ORDER BY created_at",
+        sessionId,
+      );
+      expect(turns).toHaveLength(2);
+      expect(turns[0]).toMatchObject({
+        provider_id: "anthropic",
+        model_id: "claude-haiku-4-5",
+        thinking_level: "low",
+        state: "completed",
+      });
+      expect(turns[1]).toMatchObject({
+        provider_id: "anthropic",
+        model_id: "claude-sonnet-4-5",
+        thinking_level: "high",
+        state: "completed",
+      });
     });
   });
 });
