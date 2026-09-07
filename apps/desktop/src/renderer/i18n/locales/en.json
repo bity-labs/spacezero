@@ -49,7 +49,12 @@
     "renameChat": "Rename chat",
     "renameTitleBlank": "Chat titles cannot be empty.",
     "renameTitleSingleLine": "Chat titles must be a single line.",
-    "renameTitleMaxLength": "Chat titles must be 60 characters or fewer."
+    "renameTitleMaxLength": "Chat titles must be 60 characters or fewer.",
+    "runtimeModelLabel": "Chat model",
+    "runtimeThinkingLabel": "Thinking",
+    "runtimeLoadError": "Could not load the chat model configuration.",
+    "runtimeUpdateError": "Could not update the chat model configuration.",
+    "runtimeRevisionConflict": "The chat model configuration changed. The latest configuration was reloaded — try again."
   },
   "settings": {
     "title": "Settings",

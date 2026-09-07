@@ -7,13 +7,19 @@ import {
   GlobalChatSessionFollowUpSchema,
   GlobalChatSessionLiveEventEnvelopeSchema,
   GlobalChatSessionMessageSchema,
+  GetGlobalChatSessionRuntimeResultSchema,
+  GlobalChatSessionRuntimeConfigurationSchema,
   GlobalChatSessionSummarySchema,
   GlobalChatSessionToolCallPartSchema,
+  GlobalChatSessionTurnSchema,
   RenameGlobalChatSessionRequestSchema,
   RenameGlobalChatSessionResultSchema,
+  UpdateGlobalChatSessionRuntimeRequestSchema,
+  UpdateGlobalChatSessionRuntimeResultSchema,
   deriveGlobalChatSessionInitialTitle,
   globalChatSessionTitleProblem,
 } from "./global-chat-session.schema.js";
+import { GlobalChatSessionRuntimeRevisionConflictErrorSchema } from "./global-chat-session-errors.schema.js";
 
 const parseSync = Schema.decodeUnknownSync;
 const uuid = "01234567-89ab-4def-8123-456789abcdef";
@@ -367,5 +373,144 @@ describe("Global Chat Session schemas", () => {
       text: "",
       parts: [{ type: "reasoning", text: "Plan before answering." }],
     });
+  });
+
+  it("models session runtime configuration as sanitized provider/model/thinking descriptors", () => {
+    const runtime = {
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "high" as const,
+      revision: 2,
+    };
+
+    expect(parseSync(GlobalChatSessionRuntimeConfigurationSchema)(runtime)).toEqual(
+      runtime,
+    );
+
+    // Rejected descriptors: non-positive revisions and unknown thinking levels.
+    expect(() =>
+      parseSync(GlobalChatSessionRuntimeConfigurationSchema)({
+        ...runtime,
+        revision: 0,
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(GlobalChatSessionRuntimeConfigurationSchema)({
+        ...runtime,
+        defaultThinkingLevel: "extreme",
+      }),
+    ).toThrow();
+  });
+
+  it("keeps runtime configuration free of credentials, auth paths, provider headers, and Pi internals", () => {
+    const parsed = parseSync(GlobalChatSessionRuntimeConfigurationSchema)({
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "off",
+      revision: 1,
+      apiKey: "sk-secret",
+      authStoragePath: "/home/user/.pi/auth",
+      providerHeaders: { authorization: "Bearer sk-secret" },
+      piModelRecord: { id: "raw-pi-model", contextWindow: 200000 },
+      projectId: uuid,
+      managedBranch: "spacezero/branch",
+      worktreePath: "/tmp/worktree",
+    });
+
+    expect(parsed).toEqual({
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "off",
+      revision: 1,
+    });
+    expect(parsed).not.toHaveProperty("apiKey");
+    expect(parsed).not.toHaveProperty("authStoragePath");
+    expect(parsed).not.toHaveProperty("providerHeaders");
+    expect(parsed).not.toHaveProperty("piModelRecord");
+    expect(parsed).not.toHaveProperty("projectId");
+    expect(parsed).not.toHaveProperty("managedBranch");
+    expect(parsed).not.toHaveProperty("worktreePath");
+  });
+
+  it("requires a command ID and expected revision for runtime updates", () => {
+    const request = {
+      commandId: uuid,
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "high" as const,
+      expectedRevision: 1,
+    };
+
+    expect(parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)(request)).toEqual(
+      request,
+    );
+    expect(() =>
+      parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)({
+        ...request,
+        expectedRevision: 0,
+      }),
+    ).toThrow();
+    const requestWithoutRevision = {
+      commandId: request.commandId,
+      providerId: request.providerId,
+      modelId: request.modelId,
+      defaultThinkingLevel: request.defaultThinkingLevel,
+    };
+    expect(() =>
+      parseSync(UpdateGlobalChatSessionRuntimeRequestSchema)(requestWithoutRevision),
+    ).toThrow();
+  });
+
+  it("models runtime reads and updates as session plus sanitized runtime results", () => {
+    const runtime = {
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "high" as const,
+      revision: 2,
+    };
+
+    expect(
+      parseSync(GetGlobalChatSessionRuntimeResultSchema)({ session, runtime }),
+    ).toEqual({ session, runtime });
+    expect(
+      parseSync(UpdateGlobalChatSessionRuntimeResultSchema)({
+        session,
+        runtime: { ...runtime, revision: 3 },
+      }),
+    ).toEqual({ session, runtime: { ...runtime, revision: 3 } });
+  });
+
+  it("snapshots effective provider, model, and thinking level on admitted Global Chat turns", () => {
+    const parsed = parseSync(GlobalChatSessionTurnSchema)({
+      ...turn,
+      state: "completed" as const,
+      apiKey: "sk-secret",
+      providerHeaders: { authorization: "Bearer sk-secret" },
+    });
+
+    expect(parsed).toEqual({ ...turn, state: "completed" });
+    expect(parsed).toHaveProperty("providerId", "anthropic");
+    expect(parsed).toHaveProperty("modelId", "claude-sonnet-4-5");
+    expect(parsed).toHaveProperty("thinkingLevel", "off");
+    expect(parsed).not.toHaveProperty("apiKey");
+    expect(parsed).not.toHaveProperty("providerHeaders");
+  });
+
+  it("models runtime revision conflicts as typed public errors", () => {
+    const body = {
+      code: "global_chat_session_runtime_revision_conflict" as const,
+      message:
+        "This Global Chat Session runtime configuration changed. Reload and try again.",
+    };
+
+    expect(parseSync(GlobalChatSessionRuntimeRevisionConflictErrorSchema)(body)).toEqual(
+      body,
+    );
+    expect(() =>
+      parseSync(GlobalChatSessionRuntimeRevisionConflictErrorSchema)({
+        code: "global_chat_session_archived",
+        message: "Not a revision conflict.",
+      }),
+    ).toThrow();
   });
 });
