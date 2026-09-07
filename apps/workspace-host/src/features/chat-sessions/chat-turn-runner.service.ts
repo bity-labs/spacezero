@@ -100,6 +100,7 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly toolCallId: string;
     readonly toolName: string;
+    readonly safety?: "read" | "write" | "dangerous";
     readonly reason: string;
   }) => Promise<void>;
   readonly completeTurn: (input: {
@@ -635,6 +636,9 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                 return;
               }
               if (event.type === "tool_denied") {
+                const deniedTool = input.toolPolicy
+                  .listTurnTools()
+                  .find((candidate) => candidate.name === event.toolName);
                 await persistRequired(
                   "recordToolDenied",
                   () =>
@@ -643,6 +647,9 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                       turnId: input.admission.turnId,
                       toolCallId: event.toolCallId,
                       toolName: event.toolName,
+                      ...(deniedTool?.safety === undefined
+                        ? {}
+                        : { safety: deniedTool.safety }),
                       reason: event.reason,
                     }) ?? Promise.resolve(),
                 );

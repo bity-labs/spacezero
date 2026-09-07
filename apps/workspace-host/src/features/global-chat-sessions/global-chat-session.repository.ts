@@ -1029,9 +1029,17 @@ const applyRenamedTitleInTransaction = (input: {
 
 export const createGlobalChatSessionRepository = (options: {
   readonly databasePath: string;
-  /** Concise Agent Activity History summary for a tool name; tools outside
-   * the Global Chat inspection set get a generic summary. */
-  readonly activitySummaryForTool?: (toolName: string) => string;
+  /** Concise Agent Activity History summary for a tool call; tools outside
+   * the Global Chat tool set get a generic summary. Mutation tool summaries
+   * include the sanitized created session id when available. */
+  readonly activitySummaryForTool?: (input: {
+    readonly toolName: string;
+    readonly outcome: "succeeded" | "failed" | "denied";
+    readonly result?: Extract<
+      StoredConversationPart,
+      { readonly type: "tool-call" }
+    >["result"];
+  }) => string;
 }) => ({
   list: async (): Promise<ListGlobalChatSessionsResult> =>
     runSql(
@@ -2019,8 +2027,11 @@ export const createGlobalChatSessionRepository = (options: {
           safety: input.safety ?? "read",
           outcome: input.isError ? "failed" : "succeeded",
           summary: conciseActivitySummary(
-            options.activitySummaryForTool?.(input.toolName) ??
-              `Tool ${input.toolName}`,
+            options.activitySummaryForTool?.({
+              toolName: input.toolName,
+              outcome: input.isError ? "failed" : "succeeded",
+              ...(input.result === undefined ? {} : { result: input.result }),
+            }) ?? `Tool ${input.toolName}`,
             input.isError ? "failed" : "succeeded",
           ),
           timestamp: now,
@@ -2035,6 +2046,7 @@ export const createGlobalChatSessionRepository = (options: {
     readonly turnId: string;
     readonly toolCallId: string;
     readonly toolName: string;
+    readonly safety?: "read" | "write" | "dangerous";
     readonly reason: string;
   }): Promise<void> => {
     await runSql(
@@ -2050,7 +2062,7 @@ export const createGlobalChatSessionRepository = (options: {
           turnId: input.turnId,
           toolCallId: input.toolCallId,
           toolName: input.toolName,
-          safety: null,
+          safety: input.safety ?? null,
           outcome: "denied",
           summary: conciseActivitySummary(
             `Tool ${input.toolName} denied`,
