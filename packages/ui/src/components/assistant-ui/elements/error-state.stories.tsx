@@ -34,6 +34,16 @@ export const Retrying: Story = {
   },
 };
 
+export const NoRetryAvailable: Story = {
+  render: () => (
+    <ErrorState
+      title="Turn failed"
+      detail="The assistant turn failed and no original prompt is available to retry."
+      retrying={false}
+    />
+  ),
+};
+
 function InteractiveRetryDemo() {
   const [retrying, setRetrying] = useState(false);
 
