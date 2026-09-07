@@ -43,6 +43,7 @@
     "noArchivedChatsTitle": "Aucun chat archivé",
     "noArchivedChatsDescription": "Les chats archivés restent en lecture seule jusqu’à leur désarchivage.",
     "loadingChats": "Chargement des chats",
+    "loadMoreChats": "Charger plus de chats",
     "allChatsLoadError": "Impossible de charger les chats.",
     "archivedReadOnly": "Archivée. Cette conversation est en lecture seule jusqu'à son déarchivage.",
     "unarchiveToContinue": "Désarchiver pour continuer",
