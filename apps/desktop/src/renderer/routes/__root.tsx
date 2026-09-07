@@ -4,21 +4,34 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 
-import type { GlobalChatSessionSummary } from "@spacezero/host-contracts";
 import { createGlobalChatSessionClient } from "@spacezero/client-runtime";
+import type { GlobalChatSessionSummary } from "@spacezero/host-contracts";
 
 import { SIDEBAR_DEFAULT_WIDTH } from "../components/sidebar/sidebar-layout";
 import { WorkspaceShellLayout } from "../components/workspace-shell-layout";
+import { WorkspaceTitlebarProvider } from "../components/workspace-titlebar-context";
 import {
   WorkspaceSidebar,
   type WorkspaceSidebarView,
 } from "../components/workspace-sidebar";
 import { useSidebarResize } from "../hooks/use-sidebar-resize";
-import { RECENT_CHATS_LIMIT, selectRecentUnarchivedChats } from "../features/conversations/recent-chats.model.js";
-import { subscribeChatListRefresh } from "../features/conversations/chat-list-refresh.js";
+import {
+  RECENT_CHATS_LIMIT,
+  selectRecentUnarchivedChats,
+} from "../features/conversations/recent-chats.model.js";
+import {
+  refreshChatLists,
+  subscribeChatListRefresh,
+} from "../features/conversations/chat-list-refresh.js";
 import { useGlobalChatRouteRestoration } from "../features/conversations/use-global-chat-route-restoration.js";
 
 export const Route = createRootRoute({
@@ -38,6 +51,8 @@ function RootRoute(): ReactElement {
   );
   const [activeView, setActiveView] =
     useState<WorkspaceSidebarView>("workspace");
+  const [titlebarCenterContent, setTitlebarCenterContent] =
+    useState<ReactNode | null>(null);
   const [chats, setChats] = useState<readonly GlobalChatSessionSummary[]>([]);
   const [chatsRefreshToken, setChatsRefreshToken] = useState(0);
   const [chatsExpanded, setChatsExpanded] = useState(true);
@@ -77,16 +92,27 @@ function RootRoute(): ReactElement {
           : isProjectSessionRoute
             ? t("conversations.projectSession")
             : t("workspace.title");
+  const titlebarContextValue = useMemo(
+    () => ({ setCenterContent: setTitlebarCenterContent }),
+    [],
+  );
+  const globalChatClient = useMemo(
+    () =>
+      createGlobalChatSessionClient({
+        getConnectionDescriptor: window.spacezero.getLocalHostConnection,
+      }),
+    [],
+  );
 
   useEffect(() => {
-    const client = createGlobalChatSessionClient({
-      getConnectionDescriptor: window.spacezero.getLocalHostConnection,
-    });
     let cancelled = false;
     // One batched paged request covers the recent list (10 unarchived, with
     // Host-computed previews available) without per-session follow-ups.
-    void client
-      .listGlobalChatSessionsPage({ archived: false, limit: RECENT_CHATS_LIMIT })
+    void globalChatClient
+      .listGlobalChatSessionsPage({
+        archived: false,
+        limit: RECENT_CHATS_LIMIT,
+      })
       .then((page) => {
         if (cancelled) return;
         setChats(selectRecentUnarchivedChats(page.sessions));
@@ -95,7 +121,12 @@ function RootRoute(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [isGlobalChatSessionRoute, activeChatId, chatsRefreshToken]);
+  }, [
+    globalChatClient,
+    isGlobalChatSessionRoute,
+    activeChatId,
+    chatsRefreshToken,
+  ]);
 
   useEffect(
     () =>
@@ -106,11 +137,9 @@ function RootRoute(): ReactElement {
   );
 
   const archiveSidebarChat = (sessionId: string) => {
-    const client = createGlobalChatSessionClient({
-      getConnectionDescriptor: window.spacezero.getLocalHostConnection,
-    });
-    void client
+    void globalChatClient
       .archiveSession(sessionId)
+      .then(() => refreshChatLists())
       .catch(() => undefined)
       .finally(() => setChatsRefreshToken((token) => token + 1));
   };
@@ -136,7 +165,9 @@ function RootRoute(): ReactElement {
       onResizeLeftSidebarPointerDown={leftSidebarResize.startResize}
       onResizeLeftSidebarKeyDown={leftSidebarResize.resizeWithKeyboard}
       titlebarCenter={
-        <span className="text-xs text-muted-foreground">{titlebarLabel}</span>
+        titlebarCenterContent ?? (
+          <span className="text-xs text-muted-foreground">{titlebarLabel}</span>
+        )
       }
       sidePaneHeader={null}
       leftSidebar={
@@ -178,7 +209,11 @@ function RootRoute(): ReactElement {
           onOpenSettings={() => void navigate({ to: "/settings" })}
         />
       }
-      mainContent={<Outlet />}
+      mainContent={
+        <WorkspaceTitlebarProvider value={titlebarContextValue}>
+          <Outlet />
+        </WorkspaceTitlebarProvider>
+      }
     />
   );
 }

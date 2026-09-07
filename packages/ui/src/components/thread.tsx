@@ -7,16 +7,28 @@ import {
   type ThreadMessage,
   type ThreadUserMessagePart,
 } from "@assistant-ui/react";
-import type { ReactElement, ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 import {
   Composer,
   ComposerActions,
   ComposerBar,
+  ComposerContext,
   ComposerInput,
   ComposerSend,
   ComposerToolbar,
+  type ComposerUsage,
 } from "./assistant-ui/elements/composer";
+import { GenerationLoader } from "./assistant-ui/elements/loading-state";
+import { ThinkingIndicator } from "./assistant-ui/elements/thinking-indicator";
+import { TypingIndicator } from "./assistant-ui/elements/typing-indicator";
+import { paper } from "./assistant-ui/elements/surfaces";
 import { cn } from "#lib/utils";
 
 export type ThreadViewState =
@@ -74,11 +86,14 @@ export interface ThreadProps {
   readonly isLoadingOlder?: boolean;
   readonly onLoadOlder?: () => void | Promise<void>;
   readonly onStop?: () => void | Promise<void>;
+  readonly composerStartContent?: ReactNode;
+  readonly composerContextUsage?: ComposerUsage;
+  readonly assistantActivityLabel?: string;
 }
 
 const defaultLabels = {
   transcript: "Conversation transcript",
-  loading: "Loading conversation…",
+  loading: "Loading chat",
   empty: "No saved messages yet.",
   unavailable: "Conversation unavailable.",
   error: "Conversation failed to load.",
@@ -283,17 +298,20 @@ const ThreadMessageView = ({
   return (
     <MessagePrimitive.Root
       className={cn(
-        "flex w-full flex-col gap-2 rounded-lg border p-4 text-sm shadow-sm",
-        isUser
-          ? "border-primary/20 bg-primary/5 text-foreground"
-          : "border-border bg-card text-card-foreground",
+        "flex w-full flex-col gap-2 text-sm",
+        isUser ? "items-end" : "items-start",
       )}
       data-role={message.role}
     >
-      <div className="text-xs font-medium text-muted-foreground">
-        {isUser ? labels.user : labels.assistant}
-      </div>
-      <div className="space-y-3">
+      <div className="sr-only">{isUser ? labels.user : labels.assistant}</div>
+      <div
+        className={cn(
+          "space-y-3",
+          isUser
+            ? cn(paper, "max-w-[85%] rounded-2xl px-3.5 py-2")
+            : "max-w-[85%] text-foreground/90",
+        )}
+      >
         {parts.map((part, index) => renderPart(part, labels, index))}
       </div>
     </MessagePrimitive.Root>
@@ -318,6 +336,18 @@ const followUpLabel = (
     case "recovery_required":
       return labels.followUpRecoveryRequired;
   }
+};
+
+const useLoadingTick = (active: boolean): number => {
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    const id = window.setInterval(() => setTick((current) => current + 1), 120);
+    return () => window.clearInterval(id);
+  }, [active]);
+
+  return tick;
 };
 
 const ThreadQueue = ({
@@ -378,27 +408,39 @@ const ThreadComposer = ({
   labels,
   isRunning,
   onStop,
+  startContent,
+  contextUsage,
 }: {
   readonly labels: Required<ThreadLabels>;
   readonly isRunning: boolean;
   readonly onStop?: () => void | Promise<void>;
+  readonly startContent?: ReactNode;
+  readonly contextUsage?: ComposerUsage;
 }): ReactElement => {
   const aui = useAui();
   const threadIsRunning = useAuiState((state) => state.thread.isRunning);
   const threadIsDisabled = useAuiState((state) => state.thread.isDisabled);
+  const inputRef = useRef<HTMLInputElement>(null);
   const composerText = useAuiState((state) => state.composer.text);
   const composerCanSend = useAuiState((state) => state.composer.canSend);
   const running = isRunning || threadIsRunning;
   const canSend = composerCanSend && !threadIsDisabled;
+
+  useEffect(() => {
+    if (!threadIsDisabled) inputRef.current?.focus();
+  }, [threadIsDisabled]);
+
   return (
-    <div className="border-t border-border p-4">
+    <div className="p-4">
       <Composer className="w-full max-w-none">
         <ComposerBar>
           <ComposerInput
+            ref={inputRef}
             aria-label={labels.composer}
             placeholder={labels.composer}
             value={composerText}
             disabled={threadIsDisabled}
+            autoFocus
             onChange={(event) => {
               aui.composer.setText(event.target.value);
             }}
@@ -406,7 +448,11 @@ const ThreadComposer = ({
               if (canSend) aui.composer.send();
             }}
           />
-          <ComposerToolbar className="justify-end">
+          <ComposerToolbar>
+            <ComposerActions>
+              {startContent}
+              {contextUsage ? <ComposerContext usage={contextUsage} /> : null}
+            </ComposerActions>
             <ComposerActions>
               {running && onStop ? (
                 <button
@@ -448,21 +494,17 @@ export function Thread({
   isLoadingOlder = false,
   onLoadOlder,
   onStop,
+  composerStartContent,
+  composerContextUsage,
+  assistantActivityLabel,
 }: ThreadProps): ReactElement {
   const labels = { ...defaultLabels, ...labelOverrides };
+  const loadingTick = useLoadingTick(state === "loading");
   return (
     <section
       className={cn("flex min-h-0 flex-1 flex-col", className)}
       aria-label={labels.transcript}
     >
-      {state === "loading" ? (
-        <div
-          role="status"
-          className="border-b border-border px-4 py-3 text-sm text-muted-foreground"
-        >
-          {labels.loading}
-        </div>
-      ) : null}
       {state === "unavailable" ? (
         <div
           role="status"
@@ -495,6 +537,15 @@ export function Thread({
               </button>
             </div>
           ) : null}
+          {state === "loading" ? (
+            <div className="flex min-h-40 items-center justify-center py-10">
+              <GenerationLoader
+                role="status"
+                label={labels.loading}
+                tick={loadingTick}
+              />
+            </div>
+          ) : null}
           <ThreadPrimitive.Empty>
             {state === "empty" ? (
               <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
@@ -502,12 +553,18 @@ export function Thread({
               </div>
             ) : null}
           </ThreadPrimitive.Empty>
-          <div className="space-y-4">
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
             <ThreadPrimitive.Messages>
               {({ message }) => (
                 <ThreadMessageView message={message} labels={labels} />
               )}
             </ThreadPrimitive.Messages>
+            {assistantActivityLabel ? (
+              <div className="flex flex-col items-start gap-2">
+                <ThinkingIndicator label={assistantActivityLabel} />
+                <TypingIndicator />
+              </div>
+            ) : null}
           </div>
         </ThreadPrimitive.Viewport>
         <ThreadQueue
@@ -522,6 +579,12 @@ export function Thread({
             labels={labels}
             isRunning={isRunning}
             {...(onStop === undefined ? {} : { onStop })}
+            {...(composerStartContent === undefined
+              ? {}
+              : { startContent: composerStartContent })}
+            {...(composerContextUsage === undefined
+              ? {}
+              : { contextUsage: composerContextUsage })}
           />
         )}
       </ThreadPrimitive.Root>

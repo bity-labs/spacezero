@@ -414,7 +414,10 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("Global saved answer")).toBeInTheDocument();
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
-      "Global Chat Session",
+      "Chats",
+    );
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "Global prompt",
     );
     const messageRequest = await waitFor(() => {
       const request = requests.find(
@@ -449,9 +452,14 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "New chat" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "Chats",
+    );
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
       "New chat",
     );
-    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    const draftComposer = screen.getByRole("textbox", { name: "Message" });
+    expect(draftComposer).toBeEnabled();
+    expect(draftComposer).toHaveFocus();
 
     // Abandoning the draft by navigating away must not create a session.
     fireEvent.click(screen.getByRole("button", { name: "Agent Capabilities" }));
@@ -508,7 +516,10 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "First global prompt" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
-      "Global Chat Session",
+      "Chats",
+    );
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "First global prompt",
     );
   });
 
@@ -784,9 +795,12 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Global prompt" }),
     ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+    });
   });
 
-  it("archives the active Global Chat from the header, keeps it open read-only, and unarchives from the header", async () => {
+  it("archives the active Global Chat from the sidebar, keeps it open read-only, and unarchives from the banner", async () => {
     window.location.hash = `#/global-chat-sessions/${globalChatSessionId}`;
     const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
     Object.defineProperty(window, "spacezero", {
@@ -892,7 +906,7 @@ describe("App", () => {
       within(sidebar).getByRole("button", { name: "Global prompt" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(within(surface).getByRole("button", { name: "Archive" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Archive" }));
 
     const archiveRequest = await waitFor(() => {
       const request = archiveRequests.at(-1);
@@ -940,7 +954,7 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("renames the active Global Chat from the header and reflects the new title in the sidebar", async () => {
+  it("renames the active Global Chat from the titlebar and reflects the new title in the sidebar", async () => {
     window.location.hash = `#/global-chat-sessions/${globalChatSessionId}`;
     const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
     Object.defineProperty(window, "spacezero", {
@@ -1025,20 +1039,16 @@ describe("App", () => {
 
     render(<App />);
 
-    const surface = await screen.findByLabelText(
-      "Global Chat Session conversation",
-    );
+    await screen.findByLabelText("Global Chat Session conversation");
     expect(
       await screen.findByRole("heading", { name: "Global prompt" }),
     ).toBeInTheDocument();
-    expect(
-      within(surface).getByRole("button", { name: "Global prompt" }),
-    ).toBeInTheDocument();
-
-    // Rename opens from the pencil affordance in the chat header.
-    fireEvent.click(
-      within(surface).getByRole("button", { name: "Rename chat" }),
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "Global prompt",
     );
+
+    // Rename opens from the pencil affordance in the app titlebar.
+    fireEvent.click(screen.getByRole("button", { name: "Rename chat" }));
     const renameInput = await screen.findByRole("textbox", {
       name: "Rename chat",
     });
@@ -1060,7 +1070,7 @@ describe("App", () => {
       title: "Renamed from the header",
     });
 
-    // The header shows the new title and the sidebar recent list follows
+    // The titlebar shows the new title and the sidebar recent list follows
     // the projection update.
     expect(
       await screen.findByRole("heading", {
@@ -1164,9 +1174,7 @@ describe("App", () => {
 
     render(<App />);
 
-    const surface = await screen.findByLabelText(
-      "Global Chat Session conversation",
-    );
+    await screen.findByLabelText("Global Chat Session conversation");
     expect(
       await screen.findByTestId("global-chat-session-archived-banner"),
     ).toBeInTheDocument();
@@ -1174,10 +1182,8 @@ describe("App", () => {
       expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
     });
 
-    // Rename stays available in the archived read-only state.
-    fireEvent.click(
-      within(surface).getByRole("button", { name: "Rename chat" }),
-    );
+    // Rename stays available in the archived read-only state from the titlebar.
+    fireEvent.click(screen.getByRole("button", { name: "Rename chat" }));
     const renameInput = await screen.findByRole("textbox", {
       name: "Rename chat",
     });
@@ -1280,14 +1286,10 @@ describe("App", () => {
 
     render(<App />);
 
-    const surface = await screen.findByLabelText(
-      "Global Chat Session conversation",
-    );
+    await screen.findByLabelText("Global Chat Session conversation");
     await screen.findByRole("heading", { name: "Global prompt" });
 
-    fireEvent.click(
-      within(surface).getByRole("button", { name: "Rename chat" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Rename chat" }));
     const renameInput = await screen.findByRole("textbox", {
       name: "Rename chat",
     });
@@ -1305,9 +1307,7 @@ describe("App", () => {
     ).toBeInTheDocument();
 
     // Correcting the title clears the error and submits through the Host.
-    fireEvent.click(
-      within(surface).getByRole("button", { name: "Rename chat" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Rename chat" }));
     const correctedInput = await screen.findByRole("textbox", {
       name: "Rename chat",
     });

@@ -8,7 +8,6 @@ import {
 import { Thread, type ThreadViewState } from "@spacezero/ui/components/thread";
 import { ErrorState } from "@spacezero/ui/components/assistant-ui/elements/error-state";
 import { StoppedRun } from "@spacezero/ui/components/assistant-ui/elements/stopped-run";
-import { ThinkingIndicator } from "@spacezero/ui/components/assistant-ui/elements/thinking-indicator";
 import {
   useEffect,
   useMemo,
@@ -16,6 +15,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import {
   createGlobalChatSessionClient,
@@ -55,6 +55,13 @@ const runningTurnActivityLabel = (
     .find((part) => part.type === "tool-call");
   if (toolPart?.type !== "tool-call") return undefined;
   return toolPart.progress ?? `Running ${toolPart.toolName}`;
+};
+
+const assistantActivityLabel = (
+  projection: SavedConversationProjection,
+): string | undefined => {
+  if (projection.runtime.status !== "running") return undefined;
+  return runningTurnActivityLabel(projection) ?? "Thinking";
 };
 
 const textFromAppendMessage = (message: AppendMessage): string =>
@@ -157,6 +164,26 @@ const useSavedConversationSnapshot = (
 ): SavedConversationProjection =>
   useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
 
+const estimatedComposerContextUsage = (
+  projection: SavedConversationProjection,
+): { system: number; tools: number; messages: number; total: number } => {
+  const textChars = projection.messages.reduce(
+    (total, message) => total + message.text.length,
+    0,
+  );
+  const toolCalls = projection.messages.reduce(
+    (total, message) =>
+      total + message.parts.filter((part) => part.type === "tool-call").length,
+    0,
+  );
+  return {
+    system: 1,
+    tools: Math.ceil(toolCalls / 4),
+    messages: Math.ceil(textChars / 4000),
+    total: 128,
+  };
+};
+
 const threadState = (
   status: SavedConversationProjection["status"],
 ): ThreadViewState => {
@@ -202,16 +229,6 @@ const ConversationStatusBanner = ({
         work will not continue until recovery.
       </div>
     );
-  if (projection.runtime.status === "running") {
-    const activityLabel = runningTurnActivityLabel(projection);
-    return (
-      <div role="status" className="border-b border-border px-4 py-3 text-sm">
-        <ThinkingIndicator
-          label={activityLabel ?? "Assistant is responding."}
-        />
-      </div>
-    );
-  }
   return null;
 };
 
@@ -267,8 +284,10 @@ const interruptedRun = (
 
 export function SavedConversationThread({
   store,
+  composerStartContent,
 }: {
   readonly store: SavedConversationStore;
+  readonly composerStartContent?: ReactNode;
 }): ReactElement {
   const projection = useSavedConversationSnapshot(store);
   const storeLifecycleGeneration = useRef(0);
@@ -294,6 +313,14 @@ export function SavedConversationThread({
     [projection],
   );
   const interrupted = useMemo(() => interruptedRun(projection), [projection]);
+  const composerContextUsage = useMemo(
+    () => estimatedComposerContextUsage(projection),
+    [projection],
+  );
+  const activityLabel = useMemo(
+    () => assistantActivityLabel(projection),
+    [projection],
+  );
 
   useEffect(() => {
     const lifecycleGeneration = storeLifecycleGeneration.current + 1;
@@ -432,6 +459,11 @@ export function SavedConversationThread({
             projection.runtime.status === "running" &&
             projection.actions.stop === "available"
           }
+          composerStartContent={composerStartContent}
+          composerContextUsage={composerContextUsage}
+          {...(activityLabel === undefined
+            ? {}
+            : { assistantActivityLabel: activityLabel })}
           {...(projection.actions.stop === "available" &&
           activeStopTarget !== undefined
             ? {

@@ -3,7 +3,13 @@ import {
   type GlobalChatSessionClient,
 } from "@spacezero/client-runtime";
 import type { AgentModelDescriptor } from "@spacezero/host-contracts";
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -13,10 +19,7 @@ import {
 } from "./session-runtime-model-selector.js";
 
 export interface GlobalChatSessionRuntimeSelectorClients {
-  readonly chat: Pick<
-    GlobalChatSessionClient,
-    "getRuntime" | "updateRuntime"
-  >;
+  readonly chat: Pick<GlobalChatSessionClient, "getRuntime" | "updateRuntime">;
   readonly agentRuntime: Pick<AgentRuntimeClient, "listAgentRuntimeModels">;
 }
 
@@ -82,10 +85,12 @@ export function GlobalChatSessionRuntimeSelector({
   sessionId,
   clients,
   disabled = false,
+  placement = "header",
 }: {
   readonly sessionId: string;
   readonly clients: GlobalChatSessionRuntimeSelectorClients;
   readonly disabled?: boolean;
+  readonly placement?: "header" | "composer";
 }): ReactElement | null {
   const { t } = useTranslation();
   const [state, setState] = useState<RuntimeSelectorState>({
@@ -132,7 +137,11 @@ export function GlobalChatSessionRuntimeSelector({
   );
 
   const applyRuntimeUpdate = useCallback(
-    async (providerId: string, modelId: string, level: SessionRuntimeThinkingLevel) => {
+    async (
+      providerId: string,
+      modelId: string,
+      level: SessionRuntimeThinkingLevel,
+    ) => {
       const revision = state.revision;
       if (revision === undefined) return;
       setPending(true);
@@ -152,7 +161,9 @@ export function GlobalChatSessionRuntimeSelector({
         }));
       } catch (cause: unknown) {
         const code =
-          typeof cause === "object" && cause !== null && "code" in cause &&
+          typeof cause === "object" &&
+          cause !== null &&
+          "code" in cause &&
           typeof (cause as { code: unknown }).code === "string"
             ? (cause as { code: string }).code
             : undefined;
@@ -183,7 +194,9 @@ export function GlobalChatSessionRuntimeSelector({
 
   const handleModelChange = useCallback(
     (optionId: string) => {
-      const entry = state.models.find((candidate) => candidate.option.id === optionId);
+      const entry = state.models.find(
+        (candidate) => candidate.option.id === optionId,
+      );
       if (!entry || pending) return;
       void applyRuntimeUpdate(
         entry.descriptor.providerId,
@@ -213,14 +226,25 @@ export function GlobalChatSessionRuntimeSelector({
     state.models.length === 0
   ) {
     return error ? (
-      <p role="alert" data-testid="global-chat-session-runtime-error" className="text-sm text-destructive">
+      <p
+        role="alert"
+        data-testid="global-chat-session-runtime-error"
+        className="text-sm text-destructive"
+      >
         {error}
       </p>
     ) : null;
   }
 
   return (
-    <div className="flex flex-col items-end gap-1" data-testid="global-chat-session-runtime-selector">
+    <div
+      className={
+        placement === "composer"
+          ? "flex items-center gap-1"
+          : "flex flex-col items-end gap-1"
+      }
+      data-testid="global-chat-session-runtime-selector"
+    >
       <SessionRuntimeModelSelector
         models={state.models.map((entry) => entry.option)}
         selectedModelId={state.optionId}
@@ -230,6 +254,7 @@ export function GlobalChatSessionRuntimeSelector({
         disabled={disabled || pending}
         label={t("conversations.runtimeModelLabel")}
         thinkingLabel={t("conversations.runtimeThinkingLabel")}
+        placement={placement}
       />
       {error ? (
         <p

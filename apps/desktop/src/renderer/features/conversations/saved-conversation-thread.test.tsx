@@ -95,9 +95,7 @@ describe("SavedConversationThread", () => {
       </StrictMode>,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Loading conversation",
-    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading chat");
     expect(
       await screen.findByText("No saved messages yet."),
     ).toBeInTheDocument();
@@ -130,9 +128,7 @@ describe("SavedConversationThread", () => {
 
     render(<SavedConversationThread store={store} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Loading conversation",
-    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading chat");
     expect(await screen.findByText("What changed?")).toBeInTheDocument();
     expect(
       screen.getByText("Saved **answer** from the Host."),
@@ -824,9 +820,8 @@ describe("SavedConversationThread", () => {
 
     render(<SavedConversationThread store={store} />);
 
-    expect(
-      await screen.findByText("Assistant is responding."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByLabelText("Assistant is typing")).toBeInTheDocument();
     const input = screen.getByRole("textbox", { name: "Message" });
     fireEvent.change(input, { target: { value: "Follow up while running" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1027,9 +1022,8 @@ describe("SavedConversationThread", () => {
     });
     const { rerender } = render(<SavedConversationThread store={running} />);
 
-    expect(
-      await screen.findByText("Assistant is responding."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByLabelText("Assistant is typing")).toBeInTheDocument();
 
     rerender(<SavedConversationThread store={recovery} />);
 
