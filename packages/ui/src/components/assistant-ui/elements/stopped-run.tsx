@@ -47,22 +47,25 @@ export function StoppedRun({
           <SquareIcon className="size-2.5 fill-current" />
           {reason}
         </span>
-
-        <button
-          type="button"
-          onClick={onContinue}
-          className="text-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground/95 ms-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[0.96]"
-        >
-          Continue
-          <ArrowRightIcon className="size-3" />
-        </button>
-        <button
-          type="button"
-          onClick={onDiscard}
-          className="text-foreground/45 hover:bg-foreground/[0.06] hover:text-foreground/90 flex h-7 items-center rounded-full px-2.5 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[0.96]"
-        >
-          Discard
-        </button>
+        {onContinue ? (
+          <button
+            type="button"
+            onClick={onContinue}
+            className="text-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground/95 ms-auto flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[0.96]"
+          >
+            Continue
+            <ArrowRightIcon className="size-3" />
+          </button>
+        ) : null}
+        {onDiscard ? (
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="text-foreground/45 hover:bg-foreground/[0.06] hover:text-foreground/90 flex h-7 items-center rounded-full px-2.5 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[0.96]"
+          >
+            Discard
+          </button>
+        ) : null}
       </div>
     </div>
   );

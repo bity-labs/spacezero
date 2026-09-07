@@ -1027,4 +1027,259 @@ describe("SavedConversationThread", () => {
       "Host query failed",
     );
   });
+
+  it("retries a failed turn through a Host-backed prompt resubmission and shows retrying only while the Host request is in flight", async () => {
+    const submitted: string[] = [];
+    let releaseRetry!: () => void;
+    const retryReleased = new Promise<void>((resolve) => {
+      releaseRetry = resolve;
+    });
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-retry",
+      load: async () => ({
+        title: "Failed turn",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "failed-user-message",
+            role: "user" as const,
+            text: "Original prompt",
+            sequence: 3,
+            createdAt: timestamp,
+            turnId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+        latestTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "failed" as const,
+          userMessageId: "failed-user-message",
+          assistantMessageId: "failed-assistant-message",
+          assistantMessageIds: ["failed-assistant-message"],
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          draftMessages: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+      submitPrompt: async ({ prompt, commandId }) => {
+        submitted.push(prompt);
+        await retryReleased;
+        return {
+          session: {
+            id: "project-session-retry",
+            title: "Failed turn",
+            archived: false,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastSequence: 5,
+          },
+          turn: {
+            id: "55555555-5555-4555-8555-555555555555",
+            commandId,
+            state: "running" as const,
+            userMessageId: "retried-user-message",
+            assistantMessageId: "retried-assistant-message",
+            assistantMessageIds: ["retried-assistant-message"],
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "",
+            draftMessages: [],
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          userMessage: {
+            id: "retried-user-message",
+            role: "user" as const,
+            text: prompt,
+            sequence: 5,
+            createdAt: timestamp,
+          },
+        };
+      },
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(
+      await screen.findByText("Assistant turn failed"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(submitted).toEqual(["Original prompt"]);
+    expect(await screen.findByText("Retrying")).toBeInTheDocument();
+
+    releaseRetry();
+
+    await waitFor(() => expect(screen.queryByText("Retrying")).toBeNull());
+  });
+
+  it("shows ErrorState without a retry affordance when no original prompt is recoverable", async () => {
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-session-failed",
+      load: async () => ({
+        title: "Failed turn",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "failed-assistant-message",
+            role: "assistant" as const,
+            text: "",
+            sequence: 4,
+            createdAt: timestamp,
+            turnId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+        latestTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "failed" as const,
+          userMessageId: "missing-user-message",
+          assistantMessageId: "failed-assistant-message",
+          assistantMessageIds: ["failed-assistant-message"],
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          draftMessages: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Assistant turn failed");
+    expect(alert).toHaveTextContent("no original prompt is available to retry");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("renders StoppedRun for an interrupted partial turn without fabricated Continue or Discard actions", async () => {
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-session-interrupted",
+      load: async () => ({
+        title: "Interrupted",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "interrupted-user-message",
+            role: "user" as const,
+            text: "Long question",
+            sequence: 3,
+            createdAt: timestamp,
+            turnId: "11111111-1111-4111-8111-111111111111",
+          },
+          {
+            id: "interrupted-assistant-message",
+            role: "assistant" as const,
+            text: "Partial answer",
+            sequence: 4,
+            createdAt: timestamp,
+            turnId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+        latestTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "interrupted" as const,
+          userMessageId: "interrupted-user-message",
+          assistantMessageId: "interrupted-assistant-message",
+          assistantMessageIds: ["interrupted-assistant-message"],
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          draftMessages: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    const partial = await screen.findAllByText("Partial answer");
+    expect(partial).toHaveLength(1);
+    expect(partial[0]!.closest('[data-slot="stopped-run"]')).not.toBeNull();
+    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Discard" })).toBeNull();
+  });
+
+  it("keeps an interrupted assistant message with tool activity in the transcript while showing the stopped reason", async () => {
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-interrupted-tools",
+      load: async () => ({
+        title: "Interrupted with tools",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "interrupted-tool-user-message",
+            role: "user" as const,
+            text: "Inspect the workspace",
+            sequence: 3,
+            createdAt: timestamp,
+            turnId: "11111111-1111-4111-8111-111111111111",
+          },
+          {
+            id: "interrupted-tool-assistant-message",
+            role: "assistant" as const,
+            text: "Partial with tools",
+            sequence: 4,
+            createdAt: timestamp,
+            turnId: "11111111-1111-4111-8111-111111111111",
+            parts: [
+              {
+                id: "interrupted-tool-text",
+                type: "text" as const,
+                order: 1,
+                text: "Partial with tools",
+                turnId: "11111111-1111-4111-8111-111111111111",
+              },
+              {
+                id: "tool-call-1",
+                type: "tool-call" as const,
+                order: 2,
+                turnId: "11111111-1111-4111-8111-111111111111",
+                toolCallId: "call-1",
+                toolName: "workspace.getStatus",
+                status: "running" as const,
+              },
+            ],
+          },
+        ],
+        latestTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "interrupted" as const,
+          userMessageId: "interrupted-tool-user-message",
+          assistantMessageId: "interrupted-tool-assistant-message",
+          assistantMessageIds: ["interrupted-tool-assistant-message"],
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          draftMessages: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(await screen.findByText("Partial with tools")).toBeInTheDocument();
+    const stoppedRuns = document.querySelectorAll('[data-slot="stopped-run"]');
+    expect(stoppedRuns).toHaveLength(1);
+    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+  });
 });
