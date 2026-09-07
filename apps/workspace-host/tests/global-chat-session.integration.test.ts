@@ -1897,6 +1897,76 @@ describe("Global Chat Session Host protocol", () => {
     });
   });
 
+  it("persists and reads back a rename title of 120 astral-plane code points", async () => {
+    const root = await temp();
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "answer" }) },
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Astral title probe",
+    );
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await waitFor(() => {
+      expect(
+        readRows<{ state: string }>(
+          join(root, "host.sqlite"),
+          "SELECT state FROM chat_session_turns WHERE session_id = ?",
+          sessionId,
+        )[0]?.state,
+      ).toBe("completed");
+    });
+
+    // Regression (issue #585): 120 astral code points are 240 UTF-16 units.
+    // The old UTF-16-unit limit rejected these at wire encoding after the
+    // rename event was already committed.
+    const astralTitle = "🧪".repeat(120);
+    expect([...astralTitle].length).toBe(120);
+    expect(astralTitle.length).toBe(240);
+
+    const renamed = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      astralTitle,
+    );
+    expect(renamed.response.status).toBe(200);
+    expect(renamed.body).toMatchObject({
+      session: { id: sessionId, title: astralTitle },
+    });
+
+    // The rename event and projection row carry the full 120-code-point
+    // title, and the list read-back re-encodes it through the Host Protocol
+    // without an encoding failure.
+    expect(
+      readRows<{ title: string }>(
+        join(root, "host.sqlite"),
+        "SELECT title FROM chat_sessions WHERE session_id = ?",
+        sessionId,
+      )[0]?.title,
+    ).toBe(astralTitle);
+    const listed = await listGlobalChatSessions(host, client.clientCapability);
+    expect(listed.body).toMatchObject({
+      sessions: [{ id: sessionId, title: astralTitle, archived: false }],
+    });
+
+    // The stored rename event parses back through the schema with the full
+    // title intact.
+    const storedEvent = readRows<{ event_payload_json: string }>(
+      join(root, "host.sqlite"),
+      "SELECT event_payload_json FROM chat_session_events WHERE session_id = ? AND event_type = 'GlobalChatSessionRenamedV1'",
+      sessionId,
+    )[0]?.event_payload_json;
+    expect(JSON.parse(storedEvent ?? "{}")).toMatchObject({
+      type: "GlobalChatSessionRenamedV1",
+      title: astralTitle,
+    });
+  });
+
   it("rejects blank, multiline, and oversized rename titles with typed public errors", async () => {
     const root = await temp();
     const host = await start(
@@ -1925,7 +1995,7 @@ describe("Global Chat Session Host protocol", () => {
       "",
       "   ",
       "first line\nsecond line",
-      "x".repeat(61),
+      "x".repeat(121),
     ]) {
       const rejected = await renameGlobalChatSession(
         host,

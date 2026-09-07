@@ -48,7 +48,7 @@ CREATE TABLE chat_sessions (
   kind TEXT NOT NULL CHECK (kind IN ('project', 'global')),
   title TEXT CHECK (
     title IS NULL OR (
-      length(title) BETWEEN 1 AND 60
+      length(title) BETWEEN 1 AND 120
       AND instr(title, char(10)) = 0
       AND instr(title, char(13)) = 0
     )
@@ -342,6 +342,19 @@ CREATE TABLE agent_activity_history (
   yield* sql`CREATE INDEX agent_activity_history_session_order ON agent_activity_history(session_id, timestamp)`;
 });
 
+/**
+ * No-op schema bump raising the durable Global Chat Session title limit from
+ * 60 to 120 code points (issue #585). The chat_sessions.title CHECK in the
+ * `create_chat_sessions` migration now enforces `length(title) BETWEEN 1 AND
+ * 120` (SQLite length() counts code points). Databases recorded below this
+ * version are wiped and recreated before migrations run (ADR 0044), so the
+ * new constraint takes effect on fresh databases.
+ */
+export const markGlobalChatTitleLimit120Migration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`SELECT 1`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [2, "create_chat_sessions", Effect.succeed(createChatSessionsMigration)],
@@ -400,12 +413,17 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     "create_agent_activity_history",
     Effect.succeed(createAgentActivityHistoryMigration),
   ],
+  [
+    14,
+    "mark_global_chat_title_limit_120",
+    Effect.succeed(markGlobalChatTitleLimit120Migration),
+  ],
 ] as const);
 
 /**
  * Current required durable Host data schema version. Persisted databases
  * below this version are wiped and recreated at startup (ADR 0044).
  */
-export const HOST_DATA_VERSION = 13;
+export const HOST_DATA_VERSION = 14;
 
 export const projectCatalogMigrationLoader = hostMigrationLoader;

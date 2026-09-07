@@ -328,7 +328,7 @@ describe("Global Chat Session schemas", () => {
     ).toThrow();
   });
 
-  it("validates rename titles as trimmed, single-line, at most 60 characters", () => {
+  it("validates rename titles as trimmed, single-line, at most 120 code points", () => {
     expect(globalChatSessionTitleProblem("  Renamed chat  ")).toBeUndefined();
     expect(globalChatSessionTitleProblem("  \n\t ")).toMatchObject({
       problem: "blank",
@@ -338,14 +338,90 @@ describe("Global Chat Session schemas", () => {
       problem: "multi_line",
       trimmed: "two\nlines",
     });
-    expect(globalChatSessionTitleProblem("x".repeat(60))).toBeUndefined();
-    expect(globalChatSessionTitleProblem("x".repeat(61))).toMatchObject({
+    expect(globalChatSessionTitleProblem("x".repeat(120))).toBeUndefined();
+    expect(globalChatSessionTitleProblem("x".repeat(121))).toMatchObject({
       problem: "too_long",
     });
-    expect(globalChatSessionTitleProblem("a".repeat(59) + "\u00e9")).toBeUndefined();
-    expect(globalChatSessionTitleProblem("a".repeat(60) + "\u00e9")).toMatchObject({
+    // Astral-plane code points count as one character, not two UTF-16 units:
+    // 120 emoji (240 UTF-16 units) must be accepted, 121 rejected.
+    expect(globalChatSessionTitleProblem("🧪".repeat(120))).toBeUndefined();
+    expect(globalChatSessionTitleProblem("🧪".repeat(121))).toMatchObject({
       problem: "too_long",
     });
+    expect(globalChatSessionTitleProblem("a".repeat(119) + "\u00e9")).toBeUndefined();
+    expect(globalChatSessionTitleProblem("a".repeat(120) + "\u00e9")).toMatchObject({
+      problem: "too_long",
+    });
+  });
+
+  it("accepts 120 astral-plane code point titles and round-trips them through the wire", () => {
+    const astralTitle = "🧪".repeat(120);
+    expect([...astralTitle].length).toBe(120);
+    expect(astralTitle.length).toBe(240);
+
+    const renameRequest = parseSync(RenameGlobalChatSessionRequestSchema)({
+      commandId: uuid,
+      title: astralTitle,
+    });
+    expect(renameRequest.title).toBe(astralTitle);
+    // Round-trip through the JSON wire encoding must not lose the title or
+    // fail schema validation on read-back.
+    expect(
+      parseSync(RenameGlobalChatSessionRequestSchema)(
+        JSON.parse(JSON.stringify(renameRequest)),
+      ),
+    ).toEqual(renameRequest);
+
+    const summary = parseSync(GlobalChatSessionSummarySchema)({
+      ...session,
+      title: astralTitle,
+    });
+    expect(summary.title).toBe(astralTitle);
+    expect(
+      parseSync(GlobalChatSessionSummarySchema)(
+        JSON.parse(JSON.stringify(summary)),
+      ).title,
+    ).toBe(astralTitle);
+
+    const renamedEvent = parseSync(GlobalChatSessionEventSchema)({
+      type: "GlobalChatSessionRenamedV1",
+      version: 1,
+      sessionId: session.id,
+      commandId: uuid,
+      title: astralTitle,
+      timestamp: "2026-01-02T03:04:07.000Z",
+    });
+    expect(renamedEvent).toMatchObject({ title: astralTitle });
+    expect(
+      parseSync(GlobalChatSessionEventSchema)(
+        JSON.parse(JSON.stringify(renamedEvent)),
+      ),
+    ).toEqual(renamedEvent);
+  });
+
+  it("rejects titles beyond 120 code points even when they fit UTF-16 heuristics", () => {
+    expect(() =>
+      parseSync(GlobalChatSessionSummarySchema)({
+        ...session,
+        title: "x".repeat(121),
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(GlobalChatSessionSummarySchema)({
+        ...session,
+        title: "🧪".repeat(121),
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionRenamedV1",
+        version: 1,
+        sessionId: session.id,
+        commandId: uuid,
+        title: "🧪".repeat(121),
+        timestamp: "2026-01-02T03:04:07.000Z",
+      }),
+    ).toThrow();
   });
 
   it("accepts reasoning-only in-progress checkpoints", () => {
