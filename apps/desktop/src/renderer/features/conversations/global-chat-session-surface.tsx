@@ -1,5 +1,6 @@
 import { Archive, ArrowCounterClockwise } from "@phosphor-icons/react";
 import {
+  createAgentRuntimeClient,
   createGlobalChatSessionClient,
   createGlobalChatSessionSavedConversationStore,
   type SavedConversationProjection,
@@ -11,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 
 import { refreshChatLists } from "./chat-list-refresh.js";
+import { GlobalChatSessionRuntimeSelector } from "./global-chat-session-runtime-selector.js";
 import { SavedConversationThread } from "./saved-conversation-thread.js";
 
 const renameTitleProblemMessage: Record<
@@ -36,12 +38,15 @@ export function GlobalChatSessionSurface({
 }): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { client, store } = useMemo(() => {
+  const { client, agentRuntime, store } = useMemo(() => {
     const surfaceClient = createGlobalChatSessionClient({
       getConnectionDescriptor: window.spacezero.getLocalHostConnection,
     });
     return {
       client: surfaceClient,
+      agentRuntime: createAgentRuntimeClient({
+        getConnectionDescriptor: window.spacezero.getLocalHostConnection,
+      }),
       store: createGlobalChatSessionSavedConversationStore({
         client: surfaceClient,
         sessionId,
@@ -133,6 +138,12 @@ export function GlobalChatSessionSurface({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {!archived ? (
+            <GlobalChatSessionRuntimeSelector
+              sessionId={sessionId}
+              clients={{ chat: client, agentRuntime }}
+            />
+          ) : null}
           {archived ? (
             <span
               className="rounded border border-border bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
