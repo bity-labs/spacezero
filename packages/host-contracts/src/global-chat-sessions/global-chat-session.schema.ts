@@ -280,6 +280,28 @@ export interface RenameGlobalChatSessionResult {
 }
 
 /**
+ * Maximum Global Chat Session title length, measured in Unicode code points
+ * (not UTF-16 units), so astral-plane characters such as emoji count as one
+ * character. Renamed titles may use the full budget; the initial title
+ * derived from the first prompt stays truncated to 60 code points.
+ */
+export const GLOBAL_CHAT_SESSION_TITLE_MAX_CODE_POINTS = 120;
+/**
+ * Maximum initial title length derived from the first prompt, in code
+ * points (PRD #516 rule; unchanged by the 120-code-point rename budget).
+ */
+export const GLOBAL_CHAT_SESSION_INITIAL_TITLE_MAX_CODE_POINTS = 60;
+
+/**
+ * Counts string length in Unicode code points, unlike
+ * `String.prototype.length`, which counts UTF-16 code units. All Global Chat
+ * Session title length checks must use this so a stored title always parses
+ * and encodes across the wire.
+ */
+export const globalChatSessionCodePointLength = (value: string): number =>
+  [...value].length;
+
+/**
  * Rename validation problems. Titles are trimmed before persistence; the
  * rules mirror GlobalChatSessionTitleSchema so a stored title always parses.
  */
@@ -299,7 +321,11 @@ export const globalChatSessionTitleProblem = (
   const trimmed = title.trim();
   if (trimmed.length === 0) return { problem: "blank", trimmed };
   if (/[\r\n]/u.test(title)) return { problem: "multi_line", trimmed };
-  if ([...trimmed].length > 60) return { problem: "too_long", trimmed };
+  if (
+    globalChatSessionCodePointLength(trimmed) >
+    GLOBAL_CHAT_SESSION_TITLE_MAX_CODE_POINTS
+  )
+    return { problem: "too_long", trimmed };
   return undefined;
 };
 
@@ -357,7 +383,15 @@ export const GlobalChatSessionToolCallIdSchema = Schema.String.check(
 );
 export const GlobalChatSessionTitleSchema = Schema.String.check(
   Schema.isMinLength(1),
-  Schema.isMaxLength(60),
+  // Code-point semantics: `isMaxLength` counts UTF-16 units, so a title of
+  // 120 astral code points would be rejected (and a stored title could fail
+  // wire encoding on read-back). Count code points explicitly instead.
+  Schema.makeFilter(
+    (value: string) =>
+      globalChatSessionCodePointLength(value) <=
+        GLOBAL_CHAT_SESSION_TITLE_MAX_CODE_POINTS ||
+      `title must be at most ${GLOBAL_CHAT_SESSION_TITLE_MAX_CODE_POINTS} code points`,
+  ),
   Schema.makeFilter(
     (value: string) => !/[\r\n]/.test(value) || "title must be a single line",
   ),
@@ -1027,5 +1061,7 @@ export function parseGlobalChatSessionEventStreamQuery(
 
 export const deriveGlobalChatSessionInitialTitle = (prompt: string): string => {
   const firstLine = (prompt.trim().split(/\r\n|\n|\r/u)[0] ?? "").trim();
-  return [...firstLine].slice(0, 60).join("");
+  return [...firstLine]
+    .slice(0, GLOBAL_CHAT_SESSION_INITIAL_TITLE_MAX_CODE_POINTS)
+    .join("");
 };

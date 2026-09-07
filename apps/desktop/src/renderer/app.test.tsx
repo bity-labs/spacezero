@@ -1289,13 +1289,13 @@ describe("App", () => {
       name: "Rename chat",
     });
     fireEvent.change(renameInput, {
-      target: { value: "x".repeat(61) },
+      target: { value: "x".repeat(121) },
     });
     fireEvent.keyDown(renameInput, { key: "Enter" });
 
     expect(
       await screen.findByTestId("global-chat-session-rename-error"),
-    ).toHaveTextContent("Chat titles must be 60 characters or fewer.");
+    ).toHaveTextContent("Chat titles must be 120 characters or fewer.");
     expect(renameRequests).toHaveLength(0);
     expect(
       screen.getByRole("heading", { name: "Global prompt" }),

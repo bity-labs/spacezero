@@ -284,18 +284,18 @@ describe("Global Chat Session client", () => {
           {
             code: "global_chat_session_title_invalid",
             message:
-              "Chat titles cannot be empty and must be 60 characters or fewer on a single line.",
+              "Chat titles cannot be empty and must be 120 characters or fewer on a single line.",
           },
           { status: 400 },
         )) as unknown as typeof globalThis.fetch,
     });
 
     await expect(
-      client.renameSession(sessionId, "x".repeat(61)),
+      client.renameSession(sessionId, "x".repeat(121)),
     ).rejects.toMatchObject({
       code: "global_chat_session_title_invalid",
       message:
-        "Chat titles cannot be empty and must be 60 characters or fewer on a single line.",
+        "Chat titles cannot be empty and must be 120 characters or fewer on a single line.",
     });
   });
 
