@@ -13,6 +13,7 @@ import type {
   ListGlobalChatSessionFollowUpsResult,
   ListGlobalChatSessionMessagesResult,
   ListGlobalChatSessionSkillsResult,
+  ListGlobalChatSessionsPageQuery,
   ListGlobalChatSessionsResult,
   RenameGlobalChatSessionRequest,
   RenameGlobalChatSessionResult,
@@ -39,7 +40,9 @@ export interface GlobalChatSessionService {
   readonly createWithFirstPrompt: (
     input: CreateGlobalChatSessionWithFirstPromptRequest,
   ) => Promise<CreateGlobalChatSessionWithFirstPromptResult>;
-  readonly list: () => Promise<ListGlobalChatSessionsResult>;
+  readonly list: (
+    page?: ListGlobalChatSessionsPageQuery,
+  ) => Promise<ListGlobalChatSessionsResult>;
   readonly submitPrompt: (input: {
     readonly sessionId: string;
     readonly commandId: string;
@@ -459,9 +462,9 @@ export const createGlobalChatSessionService = (options: {
         throw mapError(error);
       }
     },
-    list: async () => {
+    list: async (page) => {
       try {
-        return await repository.list();
+        return await repository.list(page);
       } catch (error) {
         throw mapError(error);
       }

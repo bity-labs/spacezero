@@ -24,6 +24,7 @@ import {
   type InterruptGlobalChatSessionTurnResult,
   type ListGlobalChatSessionFollowUpsResult,
   type ListGlobalChatSessionMessagesResult,
+  type ListGlobalChatSessionsPageQuery,
   type ListGlobalChatSessionsResult,
   type RenameGlobalChatSessionRequest,
   type RenameGlobalChatSessionResult,
@@ -273,6 +274,85 @@ const toSummary = (row: SessionRow): GlobalChatSessionSummary => ({
   updatedAt: row.updated_at,
   lastSequence: row.last_sequence,
 });
+
+const firstNonEmptyLine = (text: string): string =>
+  text
+    .split(/\r\n|\n|\r/u)
+    .map((value) => value.trim())
+    .find((value) => value.length > 0) ?? "";
+
+interface LastMessageRow {
+  readonly session_id: string;
+  readonly text: string;
+  readonly content_parts_json: string | null;
+}
+
+/**
+ * Sanitized last-message preview for batched Global Chat list results: the
+ * first non-empty line of the most recent user or assistant message text,
+ * falling back to its first text part. Never includes full transcripts,
+ * reasoning, tool calls, or tool results, so the string stays browser-safe.
+ * Mirrors the renderer's `deriveLastMessagePreview` semantics from #576.
+ */
+const lastMessagePreviewFromRow = (
+  text: string,
+  contentPartsJson: string | null,
+): string | undefined => {
+  const fromText = firstNonEmptyLine(text);
+  if (fromText.length > 0) return fromText;
+  if (contentPartsJson === null) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contentPartsJson) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(parsed)) return undefined;
+  const partText = parsed
+    .filter(
+      (part): part is { readonly text: string } =>
+        typeof part === "object" &&
+        part !== null &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string",
+    )
+    .map((part) => part.text)
+    .join(" ");
+  const fromParts = firstNonEmptyLine(partText);
+  return fromParts.length > 0 ? fromParts : undefined;
+};
+
+const toSummaryWithPreview = (
+  row: SessionRow,
+  preview: string | undefined,
+): GlobalChatSessionSummary => ({
+  ...toSummary(row),
+  ...(preview === undefined ? {} : { lastMessagePreview: preview }),
+});
+
+/**
+ * Batched last-message preview for a page of sessions: one grouped subquery
+ * picks the max-sequence message per session in the page, so list reads
+ * never issue per-session message queries (issue #586).
+ */
+const listLastMessagePreviews = (
+  sql: SqlClient,
+  sessionIds: readonly string[],
+) =>
+  Effect.gen(function* () {
+    if (sessionIds.length === 0) return new Map<string, string | undefined>();
+    const rows =
+      yield* sql<LastMessageRow>`SELECT m.session_id, m.text, m.content_parts_json FROM chat_session_messages m JOIN (SELECT session_id, MAX(sequence) AS max_sequence FROM chat_session_messages WHERE ${sql.in("session_id", [...sessionIds])} GROUP BY session_id) latest ON latest.session_id = m.session_id AND latest.max_sequence = m.sequence`;
+    return new Map(
+      rows.map(
+        (row) =>
+          [
+            row.session_id,
+            lastMessagePreviewFromRow(row.text, row.content_parts_json),
+          ] as const,
+      ),
+    );
+  });
 
 interface StoredDraftMessage {
   readonly id: string;
@@ -1041,14 +1121,60 @@ export const createGlobalChatSessionRepository = (options: {
     >["result"];
   }) => string;
 }) => ({
-  list: async (): Promise<ListGlobalChatSessionsResult> =>
+  /**
+   * Lists Global Chat Session summaries batched with sanitized last-message
+   * previews. Without `limit` this is the legacy full list ordered by last
+   * updated descending. With `limit`/`offset` it is a page (page size 20 for
+   * All Chats) whose ordering follows the tab semantics: unarchived sessions
+   * by last updated descending, archived sessions by archived time descending
+   * (issue #586).
+   */
+  list: async (
+    page?: ListGlobalChatSessionsPageQuery,
+  ): Promise<ListGlobalChatSessionsResult> =>
     runSql(
       options.databasePath,
       Effect.gen(function* () {
         const sql = yield* SqlClient;
+        const archived = page?.archived;
+        const limit = page?.limit;
+        const offset = page?.offset ?? 0;
+        const archivedClause =
+          archived === undefined
+            ? sql.literal("")
+            : archived
+              ? sql.literal(" AND archived_at IS NOT NULL")
+              : sql.literal(" AND archived_at IS NULL");
+        const orderByClause = archived
+          ? sql.literal("archived_at DESC, updated_at DESC, session_id DESC")
+          : sql.literal("updated_at DESC, session_id DESC");
         const rows =
-          yield* sql<SessionRow>`SELECT * FROM chat_sessions WHERE kind = 'global' ORDER BY updated_at DESC, session_id DESC`;
-        return { sessions: rows.map(toSummary) };
+          limit === undefined
+            ? offset === 0
+              ? yield* sql<SessionRow>`SELECT * FROM chat_sessions WHERE kind = 'global'${archivedClause} ORDER BY ${orderByClause}`
+              : // SQLite requires LIMIT with OFFSET; -1 means unbounded.
+                yield* sql<SessionRow>`SELECT * FROM chat_sessions WHERE kind = 'global'${archivedClause} ORDER BY ${orderByClause} LIMIT -1 OFFSET ${offset}`
+            : yield* sql<SessionRow>`SELECT * FROM chat_sessions WHERE kind = 'global'${archivedClause} ORDER BY ${orderByClause} LIMIT ${limit + 1} OFFSET ${offset}`;
+        const hasMore = limit !== undefined && rows.length > limit;
+        const pageRows = hasMore ? rows.slice(0, limit) : rows;
+        const previews = yield* listLastMessagePreviews(
+          sql,
+          pageRows.map((row) => row.session_id),
+        );
+        return {
+          sessions: pageRows.map((row) =>
+            toSummaryWithPreview(row, previews.get(row.session_id)),
+          ),
+          ...(limit === undefined
+            ? {}
+            : {
+                pageInfo: {
+                  pageSize: pageRows.length,
+                  hasMore,
+                  ...(hasMore ? { nextOffset: offset + pageRows.length } : {}),
+                },
+              }),
+        };
       }),
     ),
 

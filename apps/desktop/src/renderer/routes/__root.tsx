@@ -17,7 +17,7 @@ import {
   type WorkspaceSidebarView,
 } from "../components/workspace-sidebar";
 import { useSidebarResize } from "../hooks/use-sidebar-resize";
-import { selectRecentUnarchivedChats } from "../features/conversations/recent-chats.model.js";
+import { RECENT_CHATS_LIMIT, selectRecentUnarchivedChats } from "../features/conversations/recent-chats.model.js";
 import { subscribeChatListRefresh } from "../features/conversations/chat-list-refresh.js";
 import { useGlobalChatRouteRestoration } from "../features/conversations/use-global-chat-route-restoration.js";
 
@@ -83,11 +83,13 @@ function RootRoute(): ReactElement {
       getConnectionDescriptor: window.spacezero.getLocalHostConnection,
     });
     let cancelled = false;
+    // One batched paged request covers the recent list (10 unarchived, with
+    // Host-computed previews available) without per-session follow-ups.
     void client
-      .listGlobalChatSessions()
-      .then((sessions) => {
+      .listGlobalChatSessionsPage({ archived: false, limit: RECENT_CHATS_LIMIT })
+      .then((page) => {
         if (cancelled) return;
-        setChats(selectRecentUnarchivedChats(sessions));
+        setChats(selectRecentUnarchivedChats(page.sessions));
       })
       .catch(() => undefined);
     return () => {

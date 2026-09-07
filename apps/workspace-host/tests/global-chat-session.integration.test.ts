@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { AgentTurnError, type ConversationRunner } from "@spacezero/pi-adapter";
+import {
+  AgentTurnError,
+  createScriptedConversationRunner,
+  type ConversationRunner,
+} from "@spacezero/pi-adapter";
 import {
   startHostServer,
   type StartedHostServer,
@@ -191,6 +195,23 @@ const listGlobalChatSessions = async (
     new URL("/v1/global-chat-sessions", host.endpoint),
     { headers: authHeaders(clientCapability) },
   );
+  return { response, body: (await response.json()) as unknown };
+};
+const listGlobalChatSessionsPage = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  query: {
+    readonly archived?: "true" | "false";
+    readonly limit?: string;
+    readonly offset?: string;
+  },
+) => {
+  const url = new URL("/v1/global-chat-sessions", host.endpoint);
+  for (const [key, value] of Object.entries(query))
+    url.searchParams.set(key, value);
+  const response = await fetch(url, {
+    headers: authHeaders(clientCapability),
+  });
   return { response, body: (await response.json()) as unknown };
 };
 const interruptGlobalChatTurn = async (
@@ -2312,5 +2333,341 @@ describe("Global Chat Session Host protocol", () => {
         "disabled-skill",
       );
     }
+  });
+
+  it("returns batched sanitized last-message previews and pages the unarchived list at 20 per page", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "tool_started",
+          toolCallId: "preview-tool-1",
+          toolName: "workspace.inspect",
+          arguments: { target: "secret-target" },
+        });
+        await input.onEvent?.({
+          type: "tool_completed",
+          toolCallId: "preview-tool-1",
+          toolName: "workspace.inspect",
+          isError: false,
+          result: { content: [{ type: "text", text: "tool output" }] },
+        });
+        return {
+          text: "\n\nAssistant reply line.\nsecond line",
+          parts: [
+            { type: "reasoning", order: 1, text: "Secret reasoning trace." },
+            { type: "text", order: 2, text: "Assistant reply line." },
+          ],
+        };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+
+    const createdIds: string[] = [];
+    for (let index = 0; index < 25; index++) {
+      const created = await createGlobalChatSession(
+        host,
+        client.clientCapability,
+        `session ${index}`,
+      );
+      const session = (created.body as { session: { id: string } }).session;
+      createdIds.push(session.id);
+      await waitFor(async () => {
+        const listed = await listGlobalChatMessages(
+          host,
+          client.clientCapability,
+          session.id,
+        );
+        const messages = (listed.body as { messages: { role: string }[] })
+          .messages;
+        expect(messages.some((message) => message.role === "assistant")).toBe(
+          true,
+        );
+      });
+    }
+
+    interface ListedSession {
+      readonly id: string;
+      readonly archived: boolean;
+      readonly updatedAt: string;
+      readonly lastMessagePreview?: string;
+    }
+    interface ListedPage {
+      readonly sessions: readonly ListedSession[];
+      readonly pageInfo?: {
+        readonly pageSize: number;
+        readonly hasMore: boolean;
+        readonly nextOffset?: number;
+      };
+    }
+    const isOrderdByUpdatedAtDescending = (
+      sessions: readonly ListedSession[],
+    ): boolean =>
+      sessions.every((session, index) => {
+        if (index === 0) return true;
+        const previous = sessions[index - 1]!;
+        return (
+          previous.updatedAt > session.updatedAt ||
+          (previous.updatedAt === session.updatedAt && previous.id > session.id)
+        );
+      });
+
+    const firstPage = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      {
+        archived: "false",
+        limit: "20",
+        offset: "0",
+      },
+    );
+    expect(firstPage.response.status).toBe(200);
+    const firstPageBody = firstPage.body as ListedPage;
+    expect(firstPageBody.pageInfo).toEqual({
+      pageSize: 20,
+      hasMore: true,
+      nextOffset: 20,
+    });
+    expect(firstPageBody.sessions).toHaveLength(20);
+    expect(firstPageBody.sessions.every((s) => !s.archived)).toBe(true);
+    // Most recent message is the assistant's; preview is its first non-empty
+    // line even when the message text starts with blank lines.
+    for (const session of firstPageBody.sessions)
+      expect(session.lastMessagePreview).toBe("Assistant reply line.");
+    expect(isOrderdByUpdatedAtDescending(firstPageBody.sessions)).toBe(true);
+
+    const secondPage = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      {
+        archived: "false",
+        limit: "20",
+        offset: "20",
+      },
+    );
+    const secondPageBody = secondPage.body as ListedPage;
+    expect(secondPageBody.pageInfo).toEqual({ pageSize: 5, hasMore: false });
+    expect(secondPageBody.sessions).toHaveLength(5);
+    for (const session of secondPageBody.sessions)
+      expect(session.lastMessagePreview).toBe("Assistant reply line.");
+
+    // Pages are disjoint, cover the whole unarchived set, and the joined
+    // ordering stays last-updated descending.
+    const joined = [...firstPageBody.sessions, ...secondPageBody.sessions];
+    expect(new Set(joined.map((session) => session.id))).toEqual(
+      new Set(createdIds),
+    );
+    expect(isOrderdByUpdatedAtDescending(joined)).toBe(true);
+    // No full transcripts, reasoning, or tool-call internals leak into the
+    // batched previews.
+    const serialized = JSON.stringify(firstPage.body);
+    expect(serialized).not.toContain("Secret reasoning");
+    expect(serialized).not.toContain("tool_started");
+    expect(serialized).not.toContain("toolCallId");
+    expect(serialized).not.toContain("secret-target");
+    expect(serialized).not.toContain("second line");
+
+    // The legacy full-list shape keeps working with previews attached.
+    const legacy = await listGlobalChatSessions(host, client.clientCapability);
+    const legacyBody = legacy.body as ListedPage;
+    expect(legacyBody.sessions).toHaveLength(25);
+    expect(legacyBody.pageInfo).toBeUndefined();
+    expect(legacyBody.sessions.every((s) => !s.archived)).toBe(true);
+    expect(
+      legacyBody.sessions.every(
+        (session) => session.lastMessagePreview === "Assistant reply line.",
+      ),
+    ).toBe(true);
+  });
+
+  it("derives user-message previews when no assistant message exists", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        if (input.prompt.startsWith("failure injection"))
+          throw new AgentTurnError("agent_turn_failed");
+        return { text: `Echo: ${input.prompt}` };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+
+    const failed = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "failure injection\nFirst user line",
+    );
+    const failedSession = (failed.body as { session: { id: string } }).session;
+    await waitFor(async () => {
+      const listed = await listGlobalChatMessages(
+        host,
+        client.clientCapability,
+        failedSession.id,
+      );
+      expect(
+        (listed.body as { latestTurn?: { state: string } }).latestTurn?.state,
+      ).toBe("failed");
+    });
+
+    const listed = await listGlobalChatSessions(host, client.clientCapability);
+    const listedSession = (
+      listed.body as {
+        sessions: { id: string; lastMessagePreview?: string }[];
+      }
+    ).sessions.find((session) => session.id === failedSession.id);
+    // No assistant message row exists after the failed turn, so the preview
+    // comes from the most recent (user) message's first non-empty line.
+    expect(listedSession?.lastMessagePreview).toBe("failure injection");
+  });
+
+  it("pages the archived list by archived time and keeps the tabs disjoint", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner = createScriptedConversationRunner({
+      respond: (input) => {
+        if (input.prompt.startsWith("fail"))
+          throw new AgentTurnError("agent_turn_failed");
+        return `Echo: ${input.prompt}`;
+      },
+    });
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+
+    const createdIds: string[] = [];
+    for (let index = 0; index < 3; index++) {
+      const created = await createGlobalChatSession(
+        host,
+        client.clientCapability,
+        `archivable ${index}`,
+      );
+      const session = (created.body as { session: { id: string } }).session;
+      createdIds.push(session.id);
+      await waitFor(async () => {
+        const listed = await listGlobalChatMessages(
+          host,
+          client.clientCapability,
+          session.id,
+        );
+        const messages = (listed.body as { messages: { role: string }[] })
+          .messages;
+        expect(messages.some((message) => message.role === "assistant")).toBe(
+          true,
+        );
+      });
+    }
+    // Archives happen at distinct times; archived ordering is archived-time
+    // descending, so the newest archive sorts first.
+    const archivedIds: string[] = [];
+    for (const sessionId of createdIds) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const archived = await archiveGlobalChatSession(
+        host,
+        client.clientCapability,
+        sessionId,
+      );
+      expect(archived.response.status).toBe(200);
+      archivedIds.push(sessionId);
+    }
+
+    interface ListedSession {
+      readonly id: string;
+      readonly archived: boolean;
+      readonly archivedAt?: string;
+    }
+    const unarchivedPage = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      { archived: "false", limit: "20", offset: "0" },
+    );
+    const unarchivedBody = unarchivedPage.body as {
+      sessions: readonly ListedSession[];
+      pageInfo?: { pageSize: number; hasMore: boolean; nextOffset?: number };
+    };
+    // Archived sessions leave the unarchived tab pages.
+    expect(unarchivedBody.sessions).toEqual([]);
+    expect(unarchivedBody.pageInfo).toEqual({ pageSize: 0, hasMore: false });
+
+    const archivedFull = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      { archived: "true" },
+    );
+    const archivedFullBody = archivedFull.body as {
+      sessions: readonly ListedSession[];
+      pageInfo?: unknown;
+    };
+    expect(archivedFullBody.sessions.map((session) => session.id)).toEqual(
+      [...archivedIds].reverse(),
+    );
+    expect(archivedFullBody.sessions.every((session) => session.archived)).toBe(
+      true,
+    );
+    expect(archivedFullBody.pageInfo).toBeUndefined();
+
+    const archivedFirstPage = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      { archived: "true", limit: "1", offset: "0" },
+    );
+    const archivedFirstBody = archivedFirstPage.body as {
+      sessions: readonly ListedSession[];
+      pageInfo?: { pageSize: number; hasMore: boolean; nextOffset?: number };
+    };
+    expect(archivedFirstBody.pageInfo).toEqual({
+      pageSize: 1,
+      hasMore: true,
+      nextOffset: 1,
+    });
+    expect(archivedFirstBody.sessions.map((session) => session.id)).toEqual([
+      archivedIds[2],
+    ]);
+
+    const archivedSecondPage = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      { archived: "true", limit: "20", offset: "1" },
+    );
+    const archivedSecondBody = archivedSecondPage.body as {
+      sessions: readonly ListedSession[];
+      pageInfo?: { pageSize: number; hasMore: boolean; nextOffset?: number };
+    };
+    expect(archivedSecondBody.pageInfo).toEqual({
+      pageSize: 2,
+      hasMore: false,
+    });
+    expect(archivedSecondBody.sessions.map((session) => session.id)).toEqual([
+      archivedIds[1],
+      archivedIds[0],
+    ]);
+
+    // Offsets past the end return an empty page with no continuation.
+    const archivedPastEnd = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      { archived: "true", limit: "20", offset: "3" },
+    );
+    expect((archivedPastEnd.body as { sessions: unknown[] }).sessions).toEqual(
+      [],
+    );
+
+    // Unarchiving returns the session to the unarchived tab.
+    await unarchiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      createdIds[0]!,
+    );
+    const afterUnarchive = await listGlobalChatSessionsPage(
+      host,
+      client.clientCapability,
+      { archived: "false", limit: "20", offset: "0" },
+    );
+    expect(
+      (afterUnarchive.body as { sessions: { id: string }[] }).sessions.map(
+        (session) => session.id,
+      ),
+    ).toEqual([createdIds[0]]);
   });
 });

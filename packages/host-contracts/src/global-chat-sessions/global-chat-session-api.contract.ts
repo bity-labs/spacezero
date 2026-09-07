@@ -23,6 +23,7 @@ import {
   ListGlobalChatSessionFollowUpsResultSchema,
   ListGlobalChatSessionMessagesQuerySchema,
   ListGlobalChatSessionMessagesResultSchema,
+  ListGlobalChatSessionsPageQuerySchema,
   ListGlobalChatSessionsResultSchema,
   RenameGlobalChatSessionRequestSchema,
   RenameGlobalChatSessionResultSchema,
@@ -71,6 +72,7 @@ export const GlobalChatSessionApiGroup = HttpApiGroup.make("globalChatSessions")
   .add(
     HttpApiEndpoint.get("listGlobalChatSessions", "/global-chat-sessions", {
       headers: GlobalChatSessionAuthorizationHeaderSchema,
+      query: ListGlobalChatSessionsPageQuerySchema,
       success: ListGlobalChatSessionsResultSchema,
       error: [
         ...HostAuthorizationErrorSchemas,

@@ -1,23 +1,28 @@
-import type {
-  GlobalChatSessionClient,
-} from "@spacezero/client-runtime";
-import type {
-  GlobalChatSessionSummary,
-} from "@spacezero/host-contracts";
+import type { GlobalChatSessionClient } from "@spacezero/client-runtime";
+import type { GlobalChatSessionSummary } from "@spacezero/host-contracts";
 import {
   ChatListScreen,
   type ChatListRow,
 } from "@spacezero/ui/components/assistant-ui/elements/chat-list";
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
+  ALL_CHATS_PAGE_SIZE,
   ALL_CHATS_TABS,
+  appendChatSessionPage,
+  emptyAllChatsTabPage,
   formatChatUpdatedAt,
-  loadAllChatPreviews,
   selectArchivedSessions,
   selectUnarchivedSessions,
   type AllChatsTabId,
+  type AllChatsTabPage,
 } from "./all-chats.model.js";
 import { refreshChatLists } from "./chat-list-refresh.js";
 
@@ -25,10 +30,7 @@ export interface AllChatsScreenProps {
   /** Client Runtime Global Chat Session client; React stays Effect-free. */
   client: Pick<
     GlobalChatSessionClient,
-    | "listGlobalChatSessions"
-    | "listMessages"
-    | "archiveSession"
-    | "unarchiveSession"
+    "listGlobalChatSessionsPage" | "archiveSession" | "unarchiveSession"
   >;
   onNewChat: () => void;
   onSelectSession: (sessionId: string) => void;
@@ -36,25 +38,31 @@ export interface AllChatsScreenProps {
 
 type LoadState = "loading" | "ready" | "error";
 
+type TabStates = Record<AllChatsTabId, AllChatsTabPage>;
+
+const initialTabStates = (): TabStates => ({
+  unarchived: emptyAllChatsTabPage,
+  archived: emptyAllChatsTabPage,
+});
+
 const chatListRows = (
   sessions: readonly GlobalChatSessionSummary[],
-  previews: ReadonlyMap<string, string>,
 ): readonly ChatListRow[] =>
-  sessions.map((session) => {
-    const preview = previews.get(session.id);
-    return {
-      id: session.id,
-      title: session.title,
-      archived: session.archived,
-      ...(preview === undefined ? {} : { preview }),
-      updatedAt: formatChatUpdatedAt(session.updatedAt),
-    };
-  });
+  sessions.map((session) => ({
+    id: session.id,
+    title: session.title,
+    archived: session.archived,
+    ...(session.lastMessagePreview === undefined
+      ? {}
+      : { preview: session.lastMessagePreview }),
+    updatedAt: formatChatUpdatedAt(session.updatedAt),
+  }));
 
 /**
  * All Chats screen: Unarchived and Archived tabs of Global Chat Sessions,
- * with a New Chat action, empty-state CTA, and rows showing title,
- * last-message preview, and last-updated time.
+ * loaded from the batched paged Host list (20 sessions per page, with a Load
+ * more affordance) and rows showing title, batched last-message preview, and
+ * last-updated time. The tabs paginate independently.
  */
 export function AllChatsScreen({
   client,
@@ -63,33 +71,39 @@ export function AllChatsScreen({
 }: AllChatsScreenProps): ReactElement {
   const { t } = useTranslation();
   const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [sessions, setSessions] = useState<
-    readonly GlobalChatSessionSummary[]
-  >([]);
-  const [previews, setPreviews] = useState<ReadonlyMap<string, string>>(
-    new Map(),
-  );
+  const [tabs, setTabs] = useState<TabStates>(initialTabStates);
+  const [loadingMoreTabId, setLoadingMoreTabId] = useState<
+    AllChatsTabId | undefined
+  >(undefined);
   const [activeTabId, setActiveTabId] = useState<AllChatsTabId>("unarchived");
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    void client
-      .listGlobalChatSessions()
-      .then(async (loaded) => {
+    // One batched paged request per tab; per-session preview fetches are
+    // gone since the Host computes each summary's lastMessagePreview.
+    void Promise.all([
+      client.listGlobalChatSessionsPage({
+        archived: false,
+        limit: ALL_CHATS_PAGE_SIZE,
+        offset: 0,
+      }),
+      client.listGlobalChatSessionsPage({
+        archived: true,
+        limit: ALL_CHATS_PAGE_SIZE,
+        offset: 0,
+      }),
+    ])
+      .then(([unarchivedPage, archivedPage]) => {
         if (cancelled) return;
-        setSessions(loaded);
+        setTabs({
+          unarchived: appendChatSessionPage(
+            emptyAllChatsTabPage,
+            unarchivedPage,
+          ),
+          archived: appendChatSessionPage(emptyAllChatsTabPage, archivedPage),
+        });
         setLoadState("ready");
-        const loadedPreviews = await loadAllChatPreviews(
-          loaded,
-          async (sessionId) => {
-            const result = await client.listMessages(sessionId, {
-              limit: 1,
-            });
-            return result.messages[0];
-          },
-        );
-        if (!cancelled) setPreviews(loadedPreviews);
       })
       .catch(() => {
         if (!cancelled) setLoadState("error");
@@ -98,6 +112,32 @@ export function AllChatsScreen({
       cancelled = true;
     };
   }, [client, refreshToken]);
+
+  const loadMore = useCallback(
+    (tabId: AllChatsTabId): void => {
+      if (loadingMoreTabId !== undefined) return;
+      const nextOffset = tabs[tabId].nextOffset;
+      if (nextOffset === undefined) return;
+      setLoadingMoreTabId(tabId);
+      void client
+        .listGlobalChatSessionsPage({
+          archived: tabId === "archived",
+          limit: ALL_CHATS_PAGE_SIZE,
+          offset: nextOffset,
+        })
+        .then((page) => {
+          setTabs((current) => ({
+            ...current,
+            [tabId]: appendChatSessionPage(current[tabId], page),
+          }));
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          setLoadingMoreTabId(undefined);
+        });
+    },
+    [client, loadingMoreTabId, tabs],
+  );
 
   const applySessionCommand = useCallback(
     (
@@ -120,9 +160,9 @@ export function AllChatsScreen({
   const activeTabSessions = useMemo(
     () =>
       activeTabId === "unarchived"
-        ? selectUnarchivedSessions(sessions)
-        : selectArchivedSessions(sessions),
-    [activeTabId, sessions],
+        ? selectUnarchivedSessions(tabs.unarchived.sessions)
+        : selectArchivedSessions(tabs.archived.sessions),
+    [activeTabId, tabs],
   );
 
   if (loadState === "loading") {
@@ -166,7 +206,7 @@ export function AllChatsScreen({
           if (tabId === "unarchived" || tabId === "archived")
             setActiveTabId(tabId);
         }}
-        rows={chatListRows(activeTabSessions, previews)}
+        rows={chatListRows(activeTabSessions)}
         archiveRowLabel={t("workspace.archive")}
         unarchiveRowLabel={t("workspace.unarchive")}
         onArchiveRow={(sessionId) =>
@@ -175,6 +215,10 @@ export function AllChatsScreen({
         onUnarchiveRow={(sessionId) =>
           applySessionCommand(client.unarchiveSession, sessionId)
         }
+        hasMoreRows={tabs[activeTabId].nextOffset !== undefined}
+        loadingMoreRows={loadingMoreTabId === activeTabId}
+        loadMoreRowsLabel={t("conversations.loadMoreChats")}
+        onLoadMoreRows={() => loadMore(activeTabId)}
         emptyTitle={
           activeTabId === "unarchived"
             ? t("conversations.noChatsTitle")
