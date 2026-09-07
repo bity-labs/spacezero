@@ -47,6 +47,7 @@ test("real Desktop reaches real Local Host query and SSE, then reconnects after 
       "getLocalHostConnection",
       "openExternalUrl",
       "selectProjectFolder",
+      "lastActiveGlobalChatSession",
       "settings",
     ]);
   } finally {

@@ -19,6 +19,7 @@ import {
 import { useSidebarResize } from "../hooks/use-sidebar-resize";
 import { selectRecentUnarchivedChats } from "../features/conversations/recent-chats.model.js";
 import { subscribeChatListRefresh } from "../features/conversations/chat-list-refresh.js";
+import { useGlobalChatRouteRestoration } from "../features/conversations/use-global-chat-route-restoration.js";
 
 export const Route = createRootRoute({
   component: RootRoute,
@@ -27,6 +28,7 @@ export const Route = createRootRoute({
 function RootRoute(): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  useGlobalChatRouteRestoration();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
