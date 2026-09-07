@@ -624,6 +624,15 @@ const runSql = async <A>(
 const getSession = (sql: SqlClient, sessionId: string) =>
   sql<SessionRow>`SELECT * FROM chat_sessions WHERE session_id = ${sessionId} AND kind = 'global'`;
 
+/** Agent Activity History summaries are concise and bounded. */
+const conciseActivitySummary = (
+  base: string,
+  outcome: "succeeded" | "failed" | "denied",
+): string => {
+  const text = outcome === "succeeded" ? base : `${base} (${outcome})`;
+  return text.length > 256 ? `${text.slice(0, 253)}...` : text;
+};
+
 const getMessageById = (sql: SqlClient, sessionId: string, messageId: string) =>
   sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.turn_id = m.turn_id) WHERE m.session_id = ${sessionId} AND m.message_id = ${messageId}`;
 
@@ -649,6 +658,24 @@ const appendEvent = (input: {
   readonly createdAt: string;
 }) =>
   input.sql`INSERT INTO chat_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (${input.sessionId}, ${input.sequence}, ${randomUUID()}, ${input.payload.type}, 1, ${JSON.stringify(input.payload)}, ${input.createdAt})`;
+
+/**
+ * Writes one minimal Agent Activity History row for a settled or denied tool
+ * call: session id, tool name, safety, timestamp, outcome, and a concise
+ * summary. Full tool inputs and outputs are never stored.
+ */
+const insertActivityRecord = (input: {
+  readonly sql: SqlClient;
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly safety: "read" | "write" | "dangerous" | null;
+  readonly outcome: "succeeded" | "failed" | "denied";
+  readonly summary: string;
+  readonly timestamp: string;
+}) =>
+  input.sql`INSERT OR IGNORE INTO agent_activity_history (session_id, tool_call_id, turn_id, tool_name, safety, outcome, summary, timestamp) VALUES (${input.sessionId}, ${input.toolCallId}, ${input.turnId}, ${input.toolName}, ${input.safety}, ${input.outcome}, ${input.summary}, ${input.timestamp})`;
 
 const replayPromptResult = <Result extends SubmitGlobalChatSessionPromptResult>(
   sql: SqlClient,
@@ -1002,6 +1029,9 @@ const applyRenamedTitleInTransaction = (input: {
 
 export const createGlobalChatSessionRepository = (options: {
   readonly databasePath: string;
+  /** Concise Agent Activity History summary for a tool name; tools outside
+   * the Global Chat inspection set get a generic summary. */
+  readonly activitySummaryForTool?: (toolName: string) => string;
 }) => ({
   list: async (): Promise<ListGlobalChatSessionsResult> =>
     runSql(
@@ -1980,7 +2010,54 @@ export const createGlobalChatSessionRepository = (options: {
           },
           createdAt: now,
         });
+        yield* insertActivityRecord({
+          sql,
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          toolCallId: input.toolCallId,
+          toolName: input.toolName,
+          safety: input.safety ?? "read",
+          outcome: input.isError ? "failed" : "succeeded",
+          summary: conciseActivitySummary(
+            options.activitySummaryForTool?.(input.toolName) ??
+              `Tool ${input.toolName}`,
+            input.isError ? "failed" : "succeeded",
+          ),
+          timestamp: now,
+        });
         yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+      }),
+    );
+  },
+
+  recordToolDenied: async (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly toolCallId: string;
+    readonly toolName: string;
+    readonly reason: string;
+  }): Promise<void> => {
+    await runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const rows = yield* getSession(sql, input.sessionId);
+        if (!rows[0]) return;
+        const now = new Date().toISOString();
+        yield* insertActivityRecord({
+          sql,
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          toolCallId: input.toolCallId,
+          toolName: input.toolName,
+          safety: null,
+          outcome: "denied",
+          summary: conciseActivitySummary(
+            `Tool ${input.toolName} denied`,
+            "denied",
+          ),
+          timestamp: now,
+        });
       }),
     );
   },
