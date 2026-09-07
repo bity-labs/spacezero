@@ -263,6 +263,36 @@ describe("Global Chat read-only inspection Workspace Tools", () => {
     });
   });
 
+  it("reports modelSupportsThinking false for a non-reasoning default model", async () => {
+    const tools = createTools({
+      defaults: {
+        defaultModel: { providerId: "openai", modelId: "gpt-5-mini" },
+        defaultThinkingLevel: "off",
+      },
+      models: [
+        modelDescriptor({
+          providerId: "openai",
+          providerDisplayName: "OpenAI",
+          modelId: "gpt-5-mini",
+          displayName: "GPT 5 Mini",
+          reasoningSupported: false,
+          supportedThinkingLevels: ["off"],
+        }),
+      ],
+    });
+
+    await expect(
+      turnTool(tools, "agentRuntime.getDefaults").execute({}),
+    ).resolves.toEqual({
+      providerId: "openai",
+      providerName: "OpenAI",
+      modelId: "gpt-5-mini",
+      modelName: "GPT 5 Mini",
+      defaultThinkingLevel: "off",
+      modelSupportsThinking: false,
+    });
+  });
+
   it("fails the agentRuntime tool with a sanitized error when no default model is configured", async () => {
     const tools = createTools({
       defaults: { defaultModel: null, defaultThinkingLevel: null },
