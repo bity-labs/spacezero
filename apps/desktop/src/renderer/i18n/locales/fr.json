@@ -49,7 +49,7 @@
     "renameChat": "Renommer le chat",
     "renameTitleBlank": "Les titres de chat ne peuvent pas être vides.",
     "renameTitleSingleLine": "Les titres de chat doivent tenir sur une seule ligne.",
-    "renameTitleMaxLength": "Les titres de chat doivent contenir au plus 60 caractères.",
+    "renameTitleMaxLength": "Les titres de chat doivent contenir au plus 120 caractères.",
     "runtimeModelLabel": "Modèle du chat",
     "runtimeThinkingLabel": "Raisonnement",
     "runtimeLoadError": "Impossible de charger la configuration du modèle du chat.",
