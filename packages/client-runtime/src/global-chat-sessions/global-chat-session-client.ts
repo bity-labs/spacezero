@@ -24,6 +24,8 @@ import {
   type ListGlobalChatSessionFollowUpsResult,
   type ListGlobalChatSessionMessagesQuery,
   type ListGlobalChatSessionMessagesResult,
+  type ListGlobalChatSessionsPageQuery,
+  type ListGlobalChatSessionsResult,
   type RenameGlobalChatSessionResult,
   type SubmitGlobalChatSessionPromptResult,
   type UnarchiveGlobalChatSessionResult,
@@ -34,6 +36,14 @@ export interface GlobalChatSessionClient {
   readonly listGlobalChatSessions: () => Promise<
     readonly GlobalChatSessionSummary[]
   >;
+  /**
+   * Paged batched Global Chat Session list (page size 20 for All Chats):
+   * returns one page of summaries with sanitized last-message previews plus
+   * continuation state. Typed Host errors reject the promise.
+   */
+  readonly listGlobalChatSessionsPage: (
+    page?: ListGlobalChatSessionsPageQuery,
+  ) => Promise<ListGlobalChatSessionsResult>;
   readonly createWithFirstPrompt: (
     firstPrompt: string,
     commandId?: GlobalChatSessionCommandId,
@@ -119,6 +129,7 @@ interface GeneratedGlobalChatSessionApiClient {
   readonly globalChatSessions: {
     readonly listGlobalChatSessions: (input: {
       readonly headers: { readonly authorization: string };
+      readonly query: ListGlobalChatSessionsPageQuery;
     }) => Effect.Effect<unknown, unknown, never>;
     readonly createGlobalChatSessionWithFirstPrompt: (input: {
       readonly headers: { readonly authorization: string };
@@ -351,12 +362,25 @@ export const createGlobalChatSessionClient = (
       const result = await runClient(current, fetchImpl, (client) =>
         client.globalChatSessions.listGlobalChatSessions({
           headers: { authorization: `Bearer ${current.clientCapability}` },
+          query: {},
         }),
       );
       const body = Array.isArray(result) ? result[0] : result;
       return (
         body as { readonly sessions: readonly GlobalChatSessionSummary[] }
       ).sessions;
+    },
+    listGlobalChatSessionsPage: async (page) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.globalChatSessions.listGlobalChatSessions({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          query: page ?? {},
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as ListGlobalChatSessionsResult;
     },
     createWithFirstPrompt: async (firstPrompt, commandId) => {
       const current = await descriptor();

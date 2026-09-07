@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Schema, SchemaGetter } from "effect";
 import {
   AgentThinkingLevelSchema,
   type AgentThinkingLevel,
@@ -32,6 +32,29 @@ export type GlobalChatSessionTurnFailureCategory =
   | "system";
 
 export interface GlobalChatSessionSummary {
+  readonly id: GlobalChatSessionId;
+  readonly title: string;
+  readonly archived: boolean;
+  /** Durable archive time; present only while the session is archived. */
+  readonly archivedAt?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lastSequence: number;
+}
+
+/**
+ * A Global Chat Session summary batched with a sanitized last-message
+ * preview: the first non-empty line of the most recent user or assistant
+ * message text (text parts fallback), computed Host-side so list consumers
+ * never fetch per-session message pages. It is a plain browser-safe string:
+ * no full transcripts, reasoning, tool calls, or tool results.
+ */
+export interface GlobalChatSessionSummaryWithPreview {
+  readonly lastMessagePreview?: string;
+}
+
+export interface GlobalChatSessionSummary
+  extends GlobalChatSessionSummaryWithPreview {
   readonly id: GlobalChatSessionId;
   readonly title: string;
   readonly archived: boolean;
@@ -171,7 +194,38 @@ export interface CreateGlobalChatSessionWithFirstPromptResult {
 
 export interface ListGlobalChatSessionsResult {
   readonly sessions: readonly GlobalChatSessionSummary[];
+  /** Continuation state; present only when the caller requested paging. */
+  readonly pageInfo?: GlobalChatSessionListPageInfo;
 }
+
+/**
+ * Paged Global Chat Session list query. Offset paging with a fixed default
+ * page size of 20 (`GLOBAL_CHAT_SESSIONS_PAGE_SIZE`): each page is one
+ * batched Host query that also computes every session's last-message
+ * preview. `archived` selects the tab semantics — `false` (or omitted)
+ * orders unarchived sessions by last updated descending, `true` orders
+ * archived sessions by archived time descending. Omitting `limit` returns
+ * the legacy unpaginated full list.
+ */
+export interface ListGlobalChatSessionsPageQuery {
+  readonly archived?: boolean;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+/** Continuation state for a page of Global Chat Session summaries. */
+export interface GlobalChatSessionListPageInfo {
+  /** Number of sessions in this page. */
+  readonly pageSize: number;
+  readonly hasMore: boolean;
+  /** Offset to pass to the next page; present only while `hasMore`. */
+  readonly nextOffset?: number;
+}
+
+/** Required All Chats page size (PRD #516 acceptance, issue #586). */
+export const GLOBAL_CHAT_SESSIONS_PAGE_SIZE = 20;
+/** Upper bound for one Global Chat Session list page request. */
+export const GLOBAL_CHAT_SESSIONS_MAX_PAGE_SIZE = 100;
 
 export interface SubmitGlobalChatSessionPromptRequest {
   readonly commandId: GlobalChatSessionCommandId;
@@ -456,6 +510,7 @@ export const GlobalChatSessionSummarySchema = Schema.Struct({
     Schema.isInt(),
     Schema.isGreaterThanOrEqualTo(1),
   ),
+  lastMessagePreview: Schema.optionalKey(Schema.String),
 });
 export const GlobalChatSessionTextPartSchema = Schema.Struct({
   id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
@@ -604,6 +659,49 @@ export const CreateGlobalChatSessionWithFirstPromptResultSchema = Schema.Struct(
 );
 export const ListGlobalChatSessionsResultSchema = Schema.Struct({
   sessions: Schema.Array(GlobalChatSessionSummarySchema),
+  pageInfo: Schema.optionalKey(
+    Schema.Struct({
+      pageSize: Schema.Number.check(
+        Schema.isInt(),
+        Schema.isGreaterThanOrEqualTo(0),
+      ),
+      hasMore: Schema.Boolean,
+      nextOffset: Schema.optionalKey(
+        Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+      ),
+    }),
+  ),
+});
+/**
+ * Boolean URL query value: the wire encoding is the string `"true"` or
+ * `"false"`, decoded to a boolean on the Host and encoded back on the
+ * Client.
+ */
+export const GlobalChatSessionBooleanQueryStringSchema = Schema.Literals([
+  "true",
+  "false",
+]).pipe(
+  Schema.decodeTo(Schema.Boolean, {
+    decode: SchemaGetter.transform((value) => value === "true"),
+    encode: SchemaGetter.transform((value) => (value ? "true" : "false")),
+  }),
+);
+export const ListGlobalChatSessionsPageQuerySchema = Schema.Struct({
+  archived: Schema.optionalKey(GlobalChatSessionBooleanQueryStringSchema),
+  limit: Schema.optionalKey(
+    Schema.NumberFromString.pipe(
+      Schema.check(
+        Schema.isInt(),
+        Schema.isGreaterThanOrEqualTo(1),
+        Schema.isLessThanOrEqualTo(GLOBAL_CHAT_SESSIONS_MAX_PAGE_SIZE),
+      ),
+    ),
+  ),
+  offset: Schema.optionalKey(
+    Schema.NumberFromString.pipe(
+      Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+    ),
+  ),
 });
 export const SubmitGlobalChatSessionPromptRequestSchema = Schema.Struct({
   commandId: GlobalChatSessionCommandIdSchema,

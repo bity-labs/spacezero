@@ -107,6 +107,64 @@ describe("Global Chat Session client", () => {
     await expect(client.listGlobalChatSessions()).resolves.toEqual([session]);
   });
 
+  it("fetches a page of batched Global Chat Session summaries with continuation state", async () => {
+    const session = {
+      ...createResult.session,
+      lastMessagePreview: "Assistant reply line.",
+    };
+    const page = {
+      sessions: [session],
+      pageInfo: { pageSize: 20, hasMore: true, nextOffset: 20 },
+    };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        expect(request.url).toBe(
+          "http://127.0.0.1:1234/v1/global-chat-sessions?archived=false&limit=20&offset=0",
+        );
+        expect(request.method).toBe("GET");
+        expect(request.headers.get("authorization")).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json(page);
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.listGlobalChatSessionsPage({
+        archived: false,
+        limit: 20,
+        offset: 0,
+      }),
+    ).resolves.toEqual(page);
+  });
+
+  it("propagates typed Host errors from the paged list", async () => {
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: (async () =>
+        json(
+          {
+            code: "global_chat_session_unavailable",
+            message: "The Global Chat Session store is unavailable.",
+          },
+          { status: 503 },
+        )) as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.listGlobalChatSessionsPage({ archived: true, limit: 20 }),
+    ).rejects.toMatchObject({
+      code: "global_chat_session_unavailable",
+      message: "The Global Chat Session store is unavailable.",
+    });
+  });
+
   it("creates a Global Chat Session with the first prompt, bearer header, and stable command ID", async () => {
     const fetch = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
