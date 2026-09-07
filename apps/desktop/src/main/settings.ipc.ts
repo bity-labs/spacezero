@@ -4,6 +4,7 @@ import {
   DesktopSettingsStore,
   isFontFamilyPreference,
   isLanguagePreference,
+  isLastActiveGlobalChatSessionId,
   isThemePreference,
   type AppearanceSettings,
   type ThemePreference,
@@ -55,6 +56,21 @@ export const registerSettingsIpc = (options: SettingsIpcOptions): (() => void) =
     const updatedSettings = await store.updateAppearanceSettings(settings);
     nativeTheme.themeSource = toNativeThemeSource(updatedSettings.themePreference);
     return updatedSettings;
+  });
+
+  ipcMain.handle("spacezero:settings:get-last-active-global-chat-session", (event, ...args: readonly unknown[]) => {
+    if (args.length !== 0)
+      throw new Error("invalid last active Global Chat Session request");
+    assertTrustedMainFrame(event, options.isTrustedSender, "untrusted settings sender");
+    return store.getLastActiveGlobalChatSessionId();
+  });
+
+  ipcMain.handle("spacezero:settings:set-last-active-global-chat-session", (event, sessionId: unknown, ...args: readonly unknown[]) => {
+    if (args.length !== 0 || !isLastActiveGlobalChatSessionId(sessionId)) {
+      throw new Error("invalid last active Global Chat Session id");
+    }
+    assertTrustedMainFrame(event, options.isTrustedSender, "untrusted settings sender");
+    return store.setLastActiveGlobalChatSessionId(sessionId);
   });
 
   return () => {

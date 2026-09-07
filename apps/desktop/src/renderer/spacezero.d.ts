@@ -48,6 +48,15 @@ declare global {
         url: string,
       ) => Promise<{ readonly status: "opened" }>;
       readonly selectProjectFolder: () => Promise<ProjectFolderPickerResult>;
+      /**
+       * Renderer-owned route restoration marker. Persists only a Global Chat
+       * Session id or null: never credentials, capabilities, Pi state,
+       * transcripts, or secrets.
+       */
+      readonly lastActiveGlobalChatSession: {
+        readonly get: () => Promise<string | null>;
+        readonly set: (sessionId: string | null) => Promise<void>;
+      };
       readonly settings: {
         readonly get: () => Promise<DesktopSettings>;
         readonly getLanguageSettings: () => Promise<LanguageSettings>;

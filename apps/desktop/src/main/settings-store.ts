@@ -50,6 +50,26 @@ const DEFAULT_SETTINGS: DesktopSettings = {
   thinFontAntialiasing: true,
 };
 
+/**
+ * Renderer-owned UI route state persisted beside Desktop preferences. It holds
+ * only a Global Chat Session id or null: never credentials, capabilities,
+ * Pi state, transcripts, or other secrets.
+ */
+const DEFAULT_LAST_ACTIVE_GLOBAL_CHAT_SESSION_ID: string | null = null;
+
+export const MAX_LAST_ACTIVE_GLOBAL_CHAT_SESSION_ID_LENGTH = 200;
+
+export function isLastActiveGlobalChatSessionId(
+  value: unknown,
+): value is string | null {
+  return (
+    value === null ||
+    (typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= MAX_LAST_ACTIVE_GLOBAL_CHAT_SESSION_ID_LENGTH)
+  );
+}
+
 export function isLanguagePreference(value: unknown): value is LanguagePreference {
   return typeof value === "string" && LANGUAGE_PREFERENCES.includes(value as LanguagePreference);
 }
@@ -85,7 +105,24 @@ export class DesktopSettingsStore {
   constructor(private readonly settingsPath = join(app.getPath("userData"), "settings.json")) {}
 
   async getSettings(): Promise<DesktopSettings> {
-    return readSettingsFile(this.settingsPath);
+    return (await readSettingsFile(this.settingsPath)).settings;
+  }
+
+  async getLastActiveGlobalChatSessionId(): Promise<string | null> {
+    return (await readSettingsFile(this.settingsPath))
+      .lastActiveGlobalChatSessionId;
+  }
+
+  async setLastActiveGlobalChatSessionId(
+    sessionId: string | null,
+  ): Promise<void> {
+    if (!isLastActiveGlobalChatSessionId(sessionId))
+      throw new Error("invalid last active Global Chat Session id");
+    const persisted = await readSettingsFile(this.settingsPath);
+    await writeSettingsFile(this.settingsPath, {
+      ...persisted,
+      lastActiveGlobalChatSessionId: sessionId,
+    });
   }
 
   async getLanguageSettings(): Promise<LanguageSettings> {
@@ -94,8 +131,11 @@ export class DesktopSettingsStore {
   }
 
   async updateLanguagePreference(preference: LanguagePreference): Promise<LanguageSettings> {
-    const settings = await this.getSettings();
-    await writeSettingsFile(this.settingsPath, { ...settings, languagePreference: preference });
+    const persisted = await readSettingsFile(this.settingsPath);
+    await writeSettingsFile(this.settingsPath, {
+      ...persisted,
+      settings: { ...persisted.settings, languagePreference: preference },
+    });
     return resolveLanguageSettings(preference, getSystemLanguage());
   }
 
@@ -105,41 +145,70 @@ export class DesktopSettingsStore {
   }
 
   async updateAppearanceSettings(appearanceSettings: AppearanceSettings): Promise<AppearanceSettings> {
-    const settings = await this.getSettings();
-    const nextSettings = { ...settings, ...appearanceSettings };
-    await writeSettingsFile(this.settingsPath, nextSettings);
+    const persisted = await readSettingsFile(this.settingsPath);
+    const nextSettings: DesktopSettings = { ...persisted.settings, ...appearanceSettings };
+    await writeSettingsFile(this.settingsPath, {
+      ...persisted,
+      settings: nextSettings,
+    });
     return toAppearanceSettings(nextSettings);
   }
 }
 
-async function readSettingsFile(settingsPath: string): Promise<DesktopSettings> {
+interface PersistedSettings {
+  readonly settings: DesktopSettings;
+  readonly lastActiveGlobalChatSessionId: string | null;
+}
+
+async function readSettingsFile(settingsPath: string): Promise<PersistedSettings> {
   try {
     const raw = await readFile(settingsPath, "utf8");
     return parseSettings(JSON.parse(raw));
   } catch (error) {
-    if (isNotFoundError(error)) return DEFAULT_SETTINGS;
+    if (isNotFoundError(error))
+      return {
+        settings: DEFAULT_SETTINGS,
+        lastActiveGlobalChatSessionId:
+          DEFAULT_LAST_ACTIVE_GLOBAL_CHAT_SESSION_ID,
+      };
     throw error;
   }
 }
 
-function parseSettings(value: unknown): DesktopSettings {
-  if (!value || typeof value !== "object") return DEFAULT_SETTINGS;
-  const settings = value as {
+function parseSettings(value: unknown): {
+  settings: DesktopSettings;
+  lastActiveGlobalChatSessionId: string | null;
+} {
+  if (!value || typeof value !== "object")
+    return {
+      settings: DEFAULT_SETTINGS,
+      lastActiveGlobalChatSessionId:
+        DEFAULT_LAST_ACTIVE_GLOBAL_CHAT_SESSION_ID,
+    };
+  const raw = value as {
     readonly languagePreference?: unknown;
     readonly themePreference?: unknown;
     readonly fontFamily?: unknown;
     readonly thinFontAntialiasing?: unknown;
+    readonly lastActiveGlobalChatSessionId?: unknown;
   };
   return {
-    languagePreference: isLanguagePreference(settings.languagePreference)
-      ? settings.languagePreference
-      : DEFAULT_SETTINGS.languagePreference,
-    themePreference: isThemePreference(settings.themePreference) ? settings.themePreference : DEFAULT_SETTINGS.themePreference,
-    fontFamily: isFontFamilyPreference(settings.fontFamily) ? settings.fontFamily : DEFAULT_SETTINGS.fontFamily,
-    thinFontAntialiasing:
-      typeof settings.thinFontAntialiasing === "boolean"
-        ? settings.thinFontAntialiasing
-        : DEFAULT_SETTINGS.thinFontAntialiasing,
+    settings: {
+      languagePreference: isLanguagePreference(raw.languagePreference)
+        ? raw.languagePreference
+        : DEFAULT_SETTINGS.languagePreference,
+      themePreference: isThemePreference(raw.themePreference) ? raw.themePreference : DEFAULT_SETTINGS.themePreference,
+      fontFamily: isFontFamilyPreference(raw.fontFamily) ? raw.fontFamily : DEFAULT_SETTINGS.fontFamily,
+      thinFontAntialiasing:
+        typeof raw.thinFontAntialiasing === "boolean"
+          ? raw.thinFontAntialiasing
+          : DEFAULT_SETTINGS.thinFontAntialiasing,
+    },
+    lastActiveGlobalChatSessionId: isLastActiveGlobalChatSessionId(
+      raw.lastActiveGlobalChatSessionId,
+    )
+      ? raw.lastActiveGlobalChatSessionId
+      : DEFAULT_LAST_ACTIVE_GLOBAL_CHAT_SESSION_ID,
   };
 }
 
@@ -151,10 +220,29 @@ function toAppearanceSettings(settings: DesktopSettings): AppearanceSettings {
   };
 }
 
-async function writeSettingsFile(settingsPath: string, settings: DesktopSettings): Promise<void> {
+function toSettingsFileContent(persisted: PersistedSettings): DesktopSettings & {
+  lastActiveGlobalChatSessionId: string | null;
+} {
+  return {
+    ...persisted.settings,
+    lastActiveGlobalChatSessionId: persisted.lastActiveGlobalChatSessionId,
+  };
+}
+
+async function writeSettingsFile(
+  settingsPath: string,
+  persisted: PersistedSettings,
+): Promise<void> {
+  return writeSettingsFileContent(settingsPath, toSettingsFileContent(persisted));
+}
+
+async function writeSettingsFileContent(
+  settingsPath: string,
+  content: DesktopSettings & { lastActiveGlobalChatSessionId: string | null },
+): Promise<void> {
   await mkdir(dirname(settingsPath), { recursive: true });
   const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+  await writeFile(temporaryPath, `${JSON.stringify(content, null, 2)}\n`, "utf8");
   await rename(temporaryPath, settingsPath);
 }
 
