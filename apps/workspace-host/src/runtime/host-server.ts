@@ -37,6 +37,7 @@ import {
   ProjectServiceError,
 } from "../features/projects/projects.service.js";
 import { createSkillDiscoveryService } from "../features/agent-resources/skill-discovery.service.js";
+import { createSkillPreferencesRepository } from "../features/agent-resources/skill-preferences.repository.js";
 import { createAgentRuntimeDefaultsService } from "../features/agent-runtime/agent-runtime-defaults.service.js";
 import { AgentRuntimeDefaultsServiceError } from "../features/agent-runtime/agent-runtime-defaults.model.js";
 import { createGlobalChatSessionService } from "../features/global-chat-sessions/global-chat-session.service.js";
@@ -275,6 +276,14 @@ export const startHostServer = async (options: {
     directory: join(dirname(databasePath), "private-pi-state"),
   });
   const skillDiscovery = createSkillDiscoveryService({ spaceZeroHome });
+  const skillPreferences = createSkillPreferencesRepository({ databasePath });
+  const listGlobalChatSessionSkills = (input: { sessionId: string }) =>
+    skillPreferences.listDisabledSkillNames().then((disabledGlobalSkillNames) =>
+      skillDiscovery.listSkills({
+        ...input,
+        disabledGlobalSkillNames,
+      }),
+    );
   const flowRegistry = createFlowRegistry();
   const conversationRunner =
     options.conversationRunner ?? piRuntimeServices.conversationRunner;
@@ -284,6 +293,7 @@ export const startHostServer = async (options: {
     databasePath,
     conversationRunner,
     privatePiStateRepository,
+    listSessionSkills: listGlobalChatSessionSkills,
     ...(options.modelCatalog || !options.conversationRunner
       ? { modelCatalog }
       : {}),
@@ -790,6 +800,22 @@ export const startHostServer = async (options: {
           return effectPromise(() =>
             projectSessions.listSkills(params.sessionId),
           ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        listGlobalChatSessionSkills: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.listSkills(params.sessionId),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
       }),
   );

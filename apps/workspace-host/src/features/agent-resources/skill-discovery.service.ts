@@ -76,11 +76,13 @@ export const createSkillDiscoveryService = (options: SkillDiscoveryOptions) => {
   const spaceZeroHome = resolve(options.spaceZeroHome);
 
   const rootsFor = (input: {
-    readonly projectRoot: string;
-    readonly projectTrusted: boolean;
+    readonly projectRoot?: string;
+    readonly projectTrusted?: boolean;
   }): readonly SkillRoot[] => {
     const roots: SkillRoot[] = [];
-    if (input.projectTrusted) {
+    // Global Chat has no Project identity or trust context, so no projectRoot
+    // is supplied and only the approved global roots are scanned.
+    if (input.projectRoot !== undefined && input.projectTrusted === true) {
       let current = resolve(input.projectRoot);
       while (
         current !== homePath &&
@@ -115,11 +117,14 @@ export const createSkillDiscoveryService = (options: SkillDiscoveryOptions) => {
 
   const listSkills = async (input: {
     readonly sessionId: string;
-    readonly projectRoot: string;
-    readonly projectTrusted: boolean;
+    readonly projectRoot?: string;
+    readonly projectTrusted?: boolean;
+    /** Disabled global skill names; only Space Zero Home and `~/.agents/skills`
+     * scopes are filtered, project-scoped skills are never affected. */
+    readonly disabledGlobalSkillNames?: ReadonlySet<string>;
   }): Promise<SkillDiscoveryResult> => {
     const diagnostics: AgentResourceDiagnostic[] = [];
-    if (!input.projectTrusted) {
+    if (input.projectRoot !== undefined && input.projectTrusted !== true) {
       diagnostics.push(
         diagnostic({
           code: "project_trust_required",
@@ -198,6 +203,11 @@ export const createSkillDiscoveryService = (options: SkillDiscoveryOptions) => {
             continue;
           }
           const meta = frontmatter(body);
+          if (
+            (root.scope === "spacezero_home" || root.scope === "user_agents") &&
+            input.disabledGlobalSkillNames?.has(meta.name)
+          )
+            continue;
           if (byName.has(meta.name)) {
             diagnostics.push(
               diagnostic({

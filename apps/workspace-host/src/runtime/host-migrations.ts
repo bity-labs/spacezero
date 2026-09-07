@@ -300,6 +300,23 @@ export const markRequiredTurnShapesMigration = Effect.gen(function* () {
   yield* sql`SELECT 1`;
 });
 
+/**
+ * Durable Host-global skill enable/disable preferences. The Settings skill
+ * toggle surface (follow-up slice) writes rows here; Agent resource discovery
+ * filters disabled global skills (Space Zero Home and `~/.agents/skills`
+ * scopes) before they become part of any new or reloaded Session catalog.
+ * Project-scoped skills are never affected by these global toggles.
+ */
+export const createSkillPreferencesMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE skill_preferences (
+  skill_name TEXT PRIMARY KEY NOT NULL CHECK (length(skill_name) BETWEEN 1 AND 128),
+  enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+  updated_at TEXT NOT NULL
+)`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [2, "create_chat_sessions", Effect.succeed(createChatSessionsMigration)],
@@ -348,12 +365,17 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     "mark_required_turn_shapes",
     Effect.succeed(markRequiredTurnShapesMigration),
   ],
+  [
+    12,
+    "create_skill_preferences",
+    Effect.succeed(createSkillPreferencesMigration),
+  ],
 ] as const);
 
 /**
  * Current required durable Host data schema version. Persisted databases
  * below this version are wiped and recreated at startup (ADR 0044).
  */
-export const HOST_DATA_VERSION = 11;
+export const HOST_DATA_VERSION = 12;
 
 export const projectCatalogMigrationLoader = hostMigrationLoader;

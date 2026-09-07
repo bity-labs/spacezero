@@ -12,6 +12,7 @@ import type {
   InterruptGlobalChatSessionTurnResult,
   ListGlobalChatSessionFollowUpsResult,
   ListGlobalChatSessionMessagesResult,
+  ListGlobalChatSessionSkillsResult,
   ListGlobalChatSessionsResult,
   RenameGlobalChatSessionRequest,
   RenameGlobalChatSessionResult,
@@ -28,6 +29,7 @@ import {
   type PiPrivateSessionStateRepository,
 } from "@spacezero/pi-adapter";
 import { createChatTurnRunner } from "../chat-sessions/chat-turn-runner.service.js";
+import type { SkillDiscoveryResult } from "../agent-resources/skill-discovery.service.js";
 import { GlobalChatSessionServiceError } from "./global-chat-session.model.js";
 import { createGlobalChatSessionRepository } from "./global-chat-session.repository.js";
 
@@ -75,6 +77,9 @@ export interface GlobalChatSessionService {
     sessionId: string,
     options?: { readonly beforeSequence?: number; readonly limit?: number },
   ) => Promise<ListGlobalChatSessionMessagesResult>;
+  readonly listSkills: (
+    sessionId: string,
+  ) => Promise<ListGlobalChatSessionSkillsResult>;
   readonly listEventsAfter: (
     sessionId: string,
     after: number,
@@ -126,6 +131,12 @@ export const createGlobalChatSessionService = (options: {
   readonly conversationRunner?: ConversationRunner;
   readonly modelCatalog?: PiModelCatalogService;
   readonly privatePiStateRepository?: PiPrivateSessionStateRepository;
+  /** Host-approved global skill discovery for Global Chat Sessions. Global
+   * Chat has no Project identity, so only approved global roots are scanned
+   * and disabled global skills are already excluded. */
+  readonly listSessionSkills?: (input: {
+    readonly sessionId: string;
+  }) => Promise<SkillDiscoveryResult>;
 }): GlobalChatSessionService => {
   const repository = createGlobalChatSessionRepository(options);
   const conversationRunner =
@@ -216,6 +227,14 @@ export const createGlobalChatSessionService = (options: {
       readonly result: Result;
     };
   }) => {
+    // Approved global skills are snapshotted at dispatch time from approved
+    // global roots only; disabled global skills are already excluded by the
+    // discovery policy. A failed discovery never blocks the turn.
+    const skills =
+      (await options
+        .listSessionSkills?.({ sessionId: input.sessionId })
+        .then((result) => result.internalSkills)
+        .catch(() => [])) ?? [];
     turnRunner.runAdmittedTurn({
       sessionId: input.sessionId,
       commandId: input.commandId,
@@ -225,6 +244,13 @@ export const createGlobalChatSessionService = (options: {
       repository,
       tools: { kind: "none", enabledToolNames: [] },
       toolPolicy: noTools,
+      resources: {
+        skills: skills.map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+          body: skill.body,
+        })),
+      },
       makeAssistantTextDelta: ({
         sessionId,
         turnId,
@@ -519,6 +545,26 @@ export const createGlobalChatSessionService = (options: {
         return withStorageFaultRecovery(
           await repository.listMessages(sessionId, options),
         );
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    listSkills: async (sessionId) => {
+      try {
+        // Fails closed with global_chat_session_not_found for unknown or
+        // non-Global Chat session ids.
+        await repository.getRuntime(sessionId);
+        const discovery = (await options.listSessionSkills?.({ sessionId })) ?? {
+          sessionId,
+          skills: [],
+          diagnostics: [],
+          internalSkills: [],
+        };
+        return {
+          sessionId,
+          skills: discovery.skills,
+          diagnostics: discovery.diagnostics,
+        };
       } catch (error) {
         throw mapError(error);
       }
