@@ -120,6 +120,12 @@ export type AgentRuntimeEvent =
       readonly toolName: string;
       readonly isError: boolean;
       readonly result?: AgentToolDisplayResult;
+    }
+  | {
+      readonly type: "tool_denied";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly reason: string;
     };
 
 export interface AgentTurnMessage {
@@ -127,6 +133,18 @@ export interface AgentTurnMessage {
   readonly role: "user" | "assistant";
   /** Completed message text. */
   readonly text: string;
+}
+
+/** Host-approved read-only inspection tool handed to the Pi Adapter. The
+ * input schema is a plain JSON Schema object so no Pi SDK type crosses the
+ * seam; execution stays inside the Host process and returns sanitized JSON. */
+export interface AgentReadOnlyInspectionTool {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema describing the accepted tool input. */
+  readonly parameters: AgentToolJsonObject;
+  /** Host-side sanitized read-only execution. */
+  readonly execute: (args: AgentToolJsonObject) => Promise<AgentToolJsonObject>;
 }
 
 export type AgentToolConfiguration =
@@ -141,6 +159,12 @@ export type AgentToolConfiguration =
       readonly kind: "none";
       /** Global/tool-less chat turns must not enable worktree, Files, or Git tools. */
       readonly enabledToolNames: readonly string[];
+    }
+  | {
+      readonly kind: "readOnlyInspection";
+      /** Explicit Host-approved read-only inspection tools for this turn.
+       * Only these tool names can ever be called; everything else is denied. */
+      readonly tools: readonly AgentReadOnlyInspectionTool[];
     };
 
 export interface AgentTurnRuntimeConfiguration {

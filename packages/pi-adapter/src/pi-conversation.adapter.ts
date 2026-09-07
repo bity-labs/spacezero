@@ -37,6 +37,7 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
   AgentTurnError,
+  type AgentReadOnlyInspectionTool,
   type AgentToolDisplayContent,
   type AgentToolJsonObject,
   type AgentTurnContentPart,
@@ -312,6 +313,27 @@ const workspaceTools = (env: ExecutionEnv): AgentTool[] => {
   ];
 };
 
+/** Wraps a Host-provided read-only inspection tool as a Pi Agent tool. Tool
+ * results are serialized JSON so the raw host output never gains path or
+ * secret semantics beyond the shared content policy sanitization. */
+const inspectionTool = (tool: AgentReadOnlyInspectionTool): AgentTool => ({
+  name: tool.name,
+  description: tool.description,
+  label: tool.name,
+  parameters: tool.parameters as never,
+  execute: async (_toolCallId, params) => {
+    const output = await tool.execute(params as AgentToolJsonObject);
+    return {
+      content: [{ type: "text", text: JSON.stringify(output) }],
+      details: output,
+    };
+  },
+});
+
+const toInspectionAgentTools = (
+  tools: readonly AgentReadOnlyInspectionTool[],
+): AgentTool[] => tools.map(inspectionTool);
+
 const assistantMessagesAfter = (
   messages: readonly AgentMessage[],
   startIndex: number,
@@ -455,6 +477,10 @@ export function createPiConversationRunner(
         input.tools.kind === "managedWorktree"
           ? input.tools.workingDirectory
           : undefined;
+      const inspectionTools =
+        input.tools.kind === "readOnlyInspection"
+          ? toInspectionAgentTools(input.tools.tools)
+          : [];
       const toolContentPolicy = createPublicToolContentPolicy({
         ...(worktreeRoot === undefined ? {} : { worktreeRoot }),
         ...(config.protectedPathRoots === undefined
@@ -462,7 +488,10 @@ export function createPiConversationRunner(
           : { protectedPathRoots: config.protectedPathRoots }),
         protectedSecretValues: collectSecretValues(credential),
       });
-      const enabledToolNames = input.tools.enabledToolNames;
+      const enabledToolNames =
+        input.tools.kind === "readOnlyInspection"
+          ? input.tools.tools.map((tool) => tool.name)
+          : input.tools.enabledToolNames;
       const agent = new Agent({
         streamFn: models.streamSimple.bind(models),
         initialState: {
@@ -471,7 +500,7 @@ export function createPiConversationRunner(
           thinkingLevel: runtime.thinkingLevel,
           tools:
             env === undefined
-              ? []
+              ? inspectionTools
               : workspaceTools(env).filter((tool) =>
                   enabledToolNames.includes(tool.name),
                 ),
@@ -480,12 +509,19 @@ export function createPiConversationRunner(
         sessionId: input.conversationId,
         toolExecution: "sequential",
         beforeToolCall: async ({ toolCall }) => {
-          if (!enabledToolNames.includes(toolCall.name))
+          if (!enabledToolNames.includes(toolCall.name)) {
+            await input.onEvent?.({
+              type: "tool_denied",
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              reason: "Tool is not enabled for this Chat Session",
+            });
             return {
               block: true,
               terminate: true,
               reason: "Tool is not enabled for this Chat Session",
             };
+          }
           return undefined;
         },
       });
@@ -622,6 +658,16 @@ export function createPiConversationRunner(
                 ? {}
                 : { arguments: toolPart.arguments }),
             });
+            // A tool call outside the Host-approved allowlist is denied before
+            // it can execute; report the denial so durable activity history
+            // can record the denied outcome.
+            if (!enabledToolNames.includes(event.toolName))
+              await input.onEvent?.({
+                type: "tool_denied",
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+                reason: "Tool is not enabled for this Chat Session",
+              });
             break;
           }
           case "tool_execution_update": {

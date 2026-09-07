@@ -260,4 +260,62 @@ describe("chat turn persistence failure path", () => {
     expect(repository.failTurn).not.toHaveBeenCalled();
     expect(turnRunner.hasStorageFault(sessionId)).toBe(true);
   });
+
+  it("records tool denial activity without a transcript tool part when a tool call is denied", async () => {
+    const repository = createRepository({
+      recordToolDenied: vi.fn(async () => undefined),
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "tool_started",
+          toolCallId: "call-1",
+          toolName: "write",
+          arguments: { path: "src/app.ts" },
+        } satisfies AgentRuntimeEvent);
+        await input.onEvent?.({
+          type: "tool_denied",
+          toolCallId: "call-1",
+          toolName: "write",
+          reason: "Tool is not enabled for this Chat Session",
+        } satisfies AgentRuntimeEvent);
+        return { text: "done" };
+      },
+    };
+
+    await runTurn({ runner, repository });
+
+    await waitFor(() => {
+      expect(repository.recordToolDenied).toHaveBeenCalledWith({
+        sessionId,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "write",
+        reason: "Tool is not enabled for this Chat Session",
+      });
+    });
+    expect(repository.recordToolCompleted).not.toHaveBeenCalled();
+    expect(repository.completeTurn).toHaveBeenCalled();
+  });
+
+  it("ignores denial events when the repository does not keep denial activity", async () => {
+    const repository = createRepository();
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "tool_denied",
+          toolCallId: "call-1",
+          toolName: "write",
+          reason: "Tool is not enabled for this Chat Session",
+        } satisfies AgentRuntimeEvent);
+        return { text: "done" };
+      },
+    };
+
+    await runTurn({ runner, repository });
+
+    await waitFor(() => {
+      expect(repository.completeTurn).toHaveBeenCalled();
+    });
+  });
 });

@@ -93,6 +93,15 @@ export interface ChatTurnRepository {
     readonly approvalStatus?: "approved" | "requires_approval";
     readonly approvalReason?: string;
   }) => Promise<void>;
+  /** Optional denial record for tool calls blocked before execution. Only
+   * repositories that keep Agent Activity History implement this. */
+  readonly recordToolDenied?: (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly toolCallId: string;
+    readonly toolName: string;
+    readonly reason: string;
+  }) => Promise<void>;
   readonly completeTurn: (input: {
     readonly commandId: string;
     readonly sessionId: string;
@@ -622,6 +631,20 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                       : { progress: event.progress }),
                     timestamp,
                   }),
+                );
+                return;
+              }
+              if (event.type === "tool_denied") {
+                await persistRequired(
+                  "recordToolDenied",
+                  () =>
+                    input.repository.recordToolDenied?.({
+                      sessionId: input.sessionId,
+                      turnId: input.admission.turnId,
+                      toolCallId: event.toolCallId,
+                      toolName: event.toolName,
+                      reason: event.reason,
+                    }) ?? Promise.resolve(),
                 );
                 return;
               }
