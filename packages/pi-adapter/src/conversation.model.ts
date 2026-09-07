@@ -147,6 +147,31 @@ export interface AgentReadOnlyInspectionTool {
   readonly execute: (args: AgentToolJsonObject) => Promise<AgentToolJsonObject>;
 }
 
+/** Host-approved app-state mutation tool handed to the Pi Adapter. Mutation
+ * tools are never executed without an explicit confirmation decision from the
+ * Host-owned confirmation gate; execution stays inside the Host process and
+ * returns sanitized JSON only. */
+export interface AgentConfirmedMutationTool {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema describing the accepted tool input. */
+  readonly parameters: AgentToolJsonObject;
+  /** Host-side sanitized mutation execution. */
+  readonly execute: (args: AgentToolJsonObject) => Promise<AgentToolJsonObject>;
+}
+
+/** Explicit per-call decision made by the Host-owned confirmation gate. A
+ * missing or non-approved decision always denies the tool call. */
+export interface AgentToolConfirmationDecision {
+  readonly approved: boolean;
+  readonly reason?: string;
+}
+
+export type AgentToolConfirmationGate = (input: {
+  readonly toolName: string;
+  readonly args: AgentToolJsonObject;
+}) => Promise<AgentToolConfirmationDecision>;
+
 export type AgentToolConfiguration =
   | {
       readonly kind: "managedWorktree";
@@ -165,6 +190,18 @@ export type AgentToolConfiguration =
       /** Explicit Host-approved read-only inspection tools for this turn.
        * Only these tool names can ever be called; everything else is denied. */
       readonly tools: readonly AgentReadOnlyInspectionTool[];
+    }
+  | {
+      readonly kind: "inspectionWithConfirmedMutation";
+      /** Explicit Host-approved read-only inspection tools for this turn. */
+      readonly tools: readonly AgentReadOnlyInspectionTool[];
+      /** Host-approved app-state mutation tools for this turn. Each call is
+       * gated behind `confirmToolCall`; without an explicit approval decision
+       * the call is denied before it can execute. */
+      readonly confirmedTools: readonly AgentConfirmedMutationTool[];
+      /** Host-owned confirmation gate consulted before each confirmed tool
+       * call; the default Host policy denies every call. */
+      readonly confirmToolCall: AgentToolConfirmationGate;
     };
 
 export interface AgentTurnRuntimeConfiguration {
