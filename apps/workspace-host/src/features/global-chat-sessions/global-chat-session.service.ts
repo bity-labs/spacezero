@@ -31,6 +31,7 @@ import {
 import { createChatTurnRunner } from "../chat-sessions/chat-turn-runner.service.js";
 import type { SkillDiscoveryResult } from "../agent-resources/skill-discovery.service.js";
 import type { GlobalChatInspectionWorkspaceTools } from "../workspace-tools/global-chat-inspection-tools.js";
+import type { GlobalChatMutationWorkspaceTools } from "../workspace-tools/global-chat-mutation-tools.js";
 import { GlobalChatSessionServiceError } from "./global-chat-session.model.js";
 import { createGlobalChatSessionRepository } from "./global-chat-session.repository.js";
 
@@ -140,11 +141,15 @@ export const createGlobalChatSessionService = (options: {
    * turns. Global Chat never receives Project, Files, Git, worktree-scoped,
    * credential, raw Pi, Host-internal, or app-state mutation tools. */
   readonly inspectionTools: GlobalChatInspectionWorkspaceTools;
+  /** Host-approved Global Chat mutation Workspace Tools. Mutation tools are
+   * always confirmation-gated; the Host denies every call without an
+   * explicit user confirmation decision. */
+  readonly mutationTools: GlobalChatMutationWorkspaceTools;
 }): GlobalChatSessionService => {
   const repository = createGlobalChatSessionRepository({
     ...options,
-    activitySummaryForTool: (toolName) =>
-      options.inspectionTools.activitySummaryForTool(toolName),
+    activitySummaryForTool: (input) =>
+      options.mutationTools.activitySummaryForTool(input),
   });
   const conversationRunner =
     options.conversationRunner ?? createScriptedConversationRunner();
@@ -249,8 +254,10 @@ export const createGlobalChatSessionService = (options: {
       conversationId: input.admitted.conversationId,
       admission: input.admitted,
       repository,
-      tools: options.inspectionTools.turnToolConfiguration(),
-      toolPolicy: options.inspectionTools.chatTurnToolPolicy,
+      tools: options.mutationTools.turnToolConfiguration({
+        callingSessionId: input.sessionId,
+      }),
+      toolPolicy: options.mutationTools.chatTurnToolPolicy,
       resources: {
         skills: skills.map((skill) => ({
           name: skill.name,

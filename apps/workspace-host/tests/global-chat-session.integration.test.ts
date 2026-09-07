@@ -573,7 +573,7 @@ describe("Global Chat Session Host protocol", () => {
       expect(providerCalls).toBe(1);
       expect(
         (seenTools as { kind: string }[]).map((tools) => tools.kind),
-      ).toEqual(["readOnlyInspection"]);
+      ).toEqual(["inspectionWithConfirmedMutation"]);
       expect(
         readRows<{ role: string; text: string; sequence: number }>(
           databasePath,
@@ -2210,7 +2210,7 @@ describe("Global Chat Session Host protocol", () => {
     });
     expect(
       (seenTools as { kind: string }[]).map((tools) => tools.kind),
-    ).toEqual(["readOnlyInspection"]);
+    ).toEqual(["inspectionWithConfirmedMutation"]);
 
     // Disabling a global skill must exclude it from new and reloaded turns.
     // Resources captured after the disable row is written must not include it.

@@ -47,6 +47,12 @@ const start = async (
   databasePath: string,
   spaceZeroHome: string,
   conversationRunner: ConversationRunner,
+  overrides: {
+    readonly globalChatMutationConfirmation?: () => Promise<{
+      approved: boolean;
+      reason?: string;
+    }>;
+  } = {},
 ) => {
   const host = await startHostServer({
     allowedRendererOrigin: origin,
@@ -54,6 +60,12 @@ const start = async (
     databasePath,
     spaceZeroHome,
     conversationRunner,
+    ...(overrides.globalChatMutationConfirmation === undefined
+      ? {}
+      : {
+          globalChatMutationConfirmation:
+            overrides.globalChatMutationConfirmation,
+        }),
   });
   seedAgentRuntimeDefaults(databasePath, {
     providerId: "anthropic",
@@ -198,8 +210,10 @@ describe("Global Chat read-only inspection Workspace Tools", () => {
     const runner: ConversationRunner = {
       submitTurn: async (input: AgentTurnInput) => {
         seenTools.push(input.tools);
-        if (input.tools.kind !== "readOnlyInspection")
-          throw new Error("expected readOnlyInspection tool configuration");
+        if (input.tools.kind !== "inspectionWithConfirmedMutation")
+          throw new Error(
+            "expected inspectionWithConfirmedMutation tool configuration",
+          );
         const statusTool = input.tools.tools.find(
           (tool) => tool.name === "workspace.getStatus",
         );
@@ -238,13 +252,19 @@ describe("Global Chat read-only inspection Workspace Tools", () => {
     const configuration = seenTools[0] as {
       readonly kind: string;
       readonly tools: readonly { readonly name: string }[];
+      readonly confirmedTools?: readonly { readonly name: string }[];
     };
-    expect(configuration.kind).toBe("readOnlyInspection");
+    expect(configuration.kind).toBe("inspectionWithConfirmedMutation");
     expect(configuration.tools.map((tool) => tool.name)).toEqual([
       "workspace.getStatus",
       "projects.listSummaries",
       "globalChats.listSummaries",
       "agentRuntime.getDefaults",
+    ]);
+    // The confirmed mutation tool is always part of the Global Chat turn
+    // configuration; execution itself is gated behind user confirmation.
+    expect(configuration.confirmedTools?.map((tool) => tool.name)).toEqual([
+      "globalChats.createWithPrompt",
     ]);
 
     await waitFor(async () => {
@@ -418,10 +438,14 @@ describe("Global Chat read-only inspection Workspace Tools", () => {
     const databasePath = join(root, "host.sqlite");
     const runner: ConversationRunner = {
       submitTurn: async (input: AgentTurnInput) => {
-        if (input.tools.kind !== "readOnlyInspection")
-          throw new Error("expected readOnlyInspection tool configuration");
+        if (input.tools.kind !== "inspectionWithConfirmedMutation")
+          throw new Error(
+            "expected inspectionWithConfirmedMutation tool configuration",
+          );
         const readOnlyTools =
-          input.tools.kind === "readOnlyInspection" ? input.tools.tools : [];
+          input.tools.kind === "inspectionWithConfirmedMutation"
+            ? input.tools.tools
+            : [];
         const tool = (name: string): AgentReadOnlyInspectionTool | undefined =>
           readOnlyTools.find((candidate) => candidate.name === name);
         const projects = (await tool("projects.listSummaries")!.execute(
@@ -586,8 +610,10 @@ describe("Global Chat read-only inspection Workspace Tools", () => {
     const runner: ConversationRunner = {
       submitTurn: async (input: AgentTurnInput) => {
         turnCount += 1;
-        if (input.tools.kind !== "readOnlyInspection")
-          throw new Error("expected readOnlyInspection tool configuration");
+        if (input.tools.kind !== "inspectionWithConfirmedMutation")
+          throw new Error(
+            "expected inspectionWithConfirmedMutation tool configuration",
+          );
         // Block while the first turn is still running so the snapshot has an
         // active session; release control once a second prompt is submitted.
         if (turnCount === 1) {
@@ -641,5 +667,253 @@ describe("Global Chat read-only inspection Workspace Tools", () => {
       expect(assistant?.text).toContain("count: 2");
     });
     expect(second.response.status).toBe(200);
+  });
+
+  it("denies globalChats.createWithPrompt without user confirmation and creates no session", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input: AgentTurnInput) => {
+        await input.onEvent?.({
+          type: "tool_started",
+          toolCallId: "call-1",
+          toolName: "globalChats.createWithPrompt",
+          arguments: { prompt: "Agent-created chat" },
+        } satisfies AgentRuntimeEvent);
+        await input.onEvent?.({
+          type: "tool_denied",
+          toolCallId: "call-1",
+          toolName: "globalChats.createWithPrompt",
+          reason: "user_confirmation_required",
+        } satisfies AgentRuntimeEvent);
+        await input.onEvent?.({
+          type: "tool_completed",
+          toolCallId: "call-1",
+          toolName: "globalChats.createWithPrompt",
+          isError: true,
+        } satisfies AgentRuntimeEvent);
+        return { text: "understood, no chat created" };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const clientCapability = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      clientCapability,
+      "please create a new chat for me",
+    );
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+
+    await waitFor(async () => {
+      const listed = await listGlobalChatMessages(
+        host,
+        clientCapability,
+        sessionId,
+      );
+      const assistant = (
+        listed.body as {
+          messages: {
+            role: string;
+            parts?: readonly ToolCallMessagePart[];
+          }[];
+        }
+      ).messages.find((message) => message.role === "assistant");
+      const toolParts = (assistant?.parts ?? []).filter(
+        (part) => part.type === "tool-call",
+      );
+      expect(toolParts).toHaveLength(1);
+      expect(toolParts[0]).toMatchObject({
+        toolName: "globalChats.createWithPrompt",
+        status: "failed",
+        safety: "write",
+        approvalStatus: "requires_approval",
+        approvalReason: "user_confirmation_required",
+      });
+    });
+
+    // No Global Chat Session was created by the denied call.
+    const listedSessions = await fetch(
+      new URL("/v1/global-chat-sessions", host.endpoint),
+      { headers: authHeaders(clientCapability) },
+    );
+    expect(
+      ((await listedSessions.json()) as { sessions: unknown[] }).sessions,
+    ).toHaveLength(1);
+
+    // Agent Activity History keeps the denied outcome with mutation safety,
+    // the calling session, and a concise summary without the prompt.
+    await waitFor(async () => {
+      const activities = readRows<{
+        session_id: string;
+        tool_name: string;
+        safety: string | null;
+        outcome: string;
+        summary: string;
+      }>(
+        databasePath,
+        "SELECT * FROM agent_activity_history WHERE tool_name = 'globalChats.createWithPrompt'",
+      );
+      expect(activities).toHaveLength(1);
+      expect(activities[0]).toMatchObject({
+        session_id: sessionId,
+        outcome: "denied",
+        safety: "write",
+      });
+      expect(activities[0]?.summary).toContain("globalChats.createWithPrompt");
+      expect(JSON.stringify(activities)).not.toContain("Agent-created chat");
+    });
+  });
+
+  it("creates a durable Global Chat Session on approved confirmation with a sanitized result", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const results: unknown[] = [];
+    const runner: ConversationRunner = {
+      submitTurn: async (input: AgentTurnInput) => {
+        if (input.prompt !== "calling chat") return { text: "created" };
+        if (input.tools.kind !== "inspectionWithConfirmedMutation")
+          throw new Error(
+            "expected inspectionWithConfirmedMutation tool configuration",
+          );
+        const tool = input.tools.confirmedTools.find(
+          (candidate) => candidate.name === "globalChats.createWithPrompt",
+        );
+        if (!tool) throw new Error("missing confirmed mutation tool");
+        // Invalid prompts are rejected before any Session is created.
+        await expect(tool.execute({ prompt: "   " })).rejects.toThrow(
+          "prompt must not be blank",
+        );
+        const decision = await input.tools.confirmToolCall({
+          toolName: "globalChats.createWithPrompt",
+          args: { prompt: "Plan the week\nsecond line" },
+        });
+        expect(decision.approved).toBe(true);
+        const created = (await tool.execute({
+          prompt: "Plan the week\nsecond line",
+        })) as Record<string, unknown>;
+        results.push(created);
+        await input.onEvent?.({
+          type: "tool_started",
+          toolCallId: "call-1",
+          toolName: "globalChats.createWithPrompt",
+          arguments: { prompt: "Plan the week\nsecond line" },
+        } satisfies AgentRuntimeEvent);
+        await input.onEvent?.({
+          type: "tool_completed",
+          toolCallId: "call-1",
+          toolName: "globalChats.createWithPrompt",
+          isError: false,
+          result: {
+            content: [{ type: "text", text: JSON.stringify(created) }],
+          },
+        } satisfies AgentRuntimeEvent);
+        return {
+          text: JSON.stringify(created),
+          parts: [
+            {
+              type: "text" as const,
+              order: 2,
+              text: JSON.stringify(created),
+            },
+          ],
+        };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner, {
+      globalChatMutationConfirmation: async () => ({
+        approved: true,
+      }),
+    });
+    const clientCapability = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      clientCapability,
+      "calling chat",
+    );
+    const callingSessionId = (created.body as { session: { id: string } })
+      .session.id;
+
+    await waitFor(async () => {
+      const listed = await listGlobalChatMessages(
+        host,
+        clientCapability,
+        callingSessionId,
+      );
+      const assistant = (
+        listed.body as {
+          messages: {
+            role: string;
+            text: string;
+            parts?: readonly ToolCallMessagePart[];
+          }[];
+        }
+      ).messages.find((message) => message.role === "assistant");
+      expect(assistant?.text).toContain('"title":"Plan the week"');
+      // Summarized tool activity is visible in chat as a tool-call part.
+      const toolParts = (assistant?.parts ?? []).filter(
+        (part) => part.type === "tool-call",
+      );
+      expect(toolParts[0]).toMatchObject({
+        toolName: "globalChats.createWithPrompt",
+        status: "succeeded",
+        safety: "write",
+        approvalStatus: "requires_approval",
+        approvalReason: "user_confirmation_required",
+      });
+    });
+
+    const toolResult = results[0] as Record<string, unknown>;
+    expect(Object.keys(toolResult).sort()).toEqual([
+      "archived",
+      "createdAt",
+      "id",
+      "title",
+      "updatedAt",
+    ]);
+    expect(toolResult).toMatchObject({
+      title: "Plan the week",
+      archived: false,
+    });
+
+    // The created Session is durable with the normal first-prompt title rule.
+    const listedSessions = await fetch(
+      new URL("/v1/global-chat-sessions", host.endpoint),
+      { headers: authHeaders(clientCapability) },
+    );
+    const sessions = (
+      (await listedSessions.json()) as {
+        sessions: { id: string; title: string; archived: boolean }[];
+      }
+    ).sessions;
+    expect(sessions).toHaveLength(2);
+    expect(
+      sessions.find((session) => session.id === (toolResult.id as string)),
+    ).toMatchObject({ title: "Plan the week", archived: false });
+
+    // Agent Activity History records the calling session, the created
+    // session id, tool name, safety, and outcome without the prompt.
+    await waitFor(() => {
+      const activities = readRows<{
+        session_id: string;
+        tool_name: string;
+        safety: string | null;
+        outcome: string;
+        summary: string;
+      }>(
+        databasePath,
+        "SELECT * FROM agent_activity_history WHERE tool_name = 'globalChats.createWithPrompt'",
+      );
+      expect(activities).toHaveLength(1);
+      expect(activities[0]).toMatchObject({
+        session_id: callingSessionId,
+        outcome: "succeeded",
+        safety: "write",
+      });
+      expect(activities[0]?.summary).toContain(
+        `Global Chat session created (${toolResult.id as string})`,
+      );
+      expect(activities[0]?.summary.length).toBeLessThanOrEqual(256);
+      expect(JSON.stringify(activities)).not.toContain("Plan the week");
+    });
   });
 });
