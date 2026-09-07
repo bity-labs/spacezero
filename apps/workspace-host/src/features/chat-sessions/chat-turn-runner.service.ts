@@ -803,12 +803,19 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           return;
         }
         await checkpointDraft().catch(() => undefined);
+        const reason = failureReason(error);
+        console.error("agent turn failed", {
+          reason,
+          sessionId: input.sessionId,
+          turnId: input.admission.turnId,
+          error,
+        });
         await input.repository
           .failTurn({
             commandId: input.commandId,
             sessionId: input.sessionId,
             turnId: input.admission.turnId,
-            reason: failureReason(error),
+            reason,
           })
           .then(() => stream.wakeEvents(input.sessionId))
           .catch(() => undefined);

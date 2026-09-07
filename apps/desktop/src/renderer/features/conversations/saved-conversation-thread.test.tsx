@@ -5,7 +5,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { StrictMode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createGlobalChatSessionSavedConversationStore,
   createSavedConversationStore,
@@ -79,6 +80,30 @@ const timestamp = "2026-01-01T00:00:00.000Z";
 
 describe("SavedConversationThread", () => {
   afterEach(() => cleanup());
+
+  it("finishes loading and enables draft sending under React StrictMode", async () => {
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-draft",
+      load: async () => ({ title: "New chat", lastSequence: 0, messages: [] }),
+      submitPrompt: vi.fn(),
+    });
+
+    render(
+      <StrictMode>
+        <SavedConversationThread store={store} />
+      </StrictMode>,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Loading conversation",
+    );
+    expect(
+      await screen.findByText("No saved messages yet."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+  });
 
   it("loads Project Session saved messages into the shared Thread and leaves unsupported actions inactive", async () => {
     const store = loadedStore({

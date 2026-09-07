@@ -27,6 +27,7 @@ import {
   type SubmitSessionPromptResult,
   type UpdateProjectSessionRuntimeResult,
 } from "@spacezero/host-contracts";
+import { withHostCallDebugLogging } from "../connection/host-call-logging.js";
 
 export interface ProjectSessionClient {
   readonly listProjectSessions: () => Promise<readonly ProjectSessionSummary[]>;
@@ -301,7 +302,7 @@ const runClient = async <A>(
 export const createProjectSessionClient = (
   options: ProjectSessionClientOptions,
 ): ProjectSessionClient => {
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = options.fetch ?? withHostCallDebugLogging(globalThis.fetch);
   const createCommandId =
     options.createCommandId ?? (() => globalThis.crypto.randomUUID());
   const descriptor = async () =>

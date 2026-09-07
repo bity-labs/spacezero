@@ -11,6 +11,7 @@
   "scripts": {
     "preinstall": "node scripts/check-runtime.mjs",
     "dev": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop dev",
+    "dev:debug:host": "VITE_SPACEZERO_DEBUG_HOST_CALLS=1 pnpm dev",
     "dev:handbook": "pnpm --filter @spacezero/handbook dev",
     "build:packages": "pnpm --filter @spacezero/host-contracts build && pnpm --filter @spacezero/client-runtime build && pnpm --filter @spacezero/pi-adapter build",
     "storybook": "pnpm --filter @spacezero/ui storybook",

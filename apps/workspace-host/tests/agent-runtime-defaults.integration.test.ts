@@ -291,6 +291,23 @@ describe("Agent Runtime Host-global defaults", () => {
     });
   });
 
+  it("chooses the first supported thinking level when selecting the first default model", async () => {
+    const root = await temp();
+    const { descriptor } = await start(root);
+
+    const changed = await updateDefaults(descriptor, {
+      defaultModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+    });
+
+    expect(changed.status).toBe(200);
+    expect(changed.body).toEqual({
+      defaults: {
+        defaultModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+        defaultThinkingLevel: "off",
+      },
+    });
+  });
+
   it("returns client-safe defaults payloads only", async () => {
     const root = await temp();
     const { descriptor } = await start(root);

@@ -31,6 +31,7 @@ import {
   type UnarchiveGlobalChatSessionResult,
   type UpdateGlobalChatSessionRuntimeResult,
 } from "@spacezero/host-contracts";
+import { withHostCallDebugLogging } from "../connection/host-call-logging.js";
 
 export interface GlobalChatSessionClient {
   readonly listGlobalChatSessions: () => Promise<
@@ -351,7 +352,7 @@ const runClient = async <A>(
 export const createGlobalChatSessionClient = (
   options: GlobalChatSessionClientOptions,
 ): GlobalChatSessionClient => {
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = options.fetch ?? withHostCallDebugLogging(globalThis.fetch);
   const createCommandId =
     options.createCommandId ?? (() => globalThis.crypto.randomUUID());
   const descriptor = async () =>

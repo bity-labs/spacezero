@@ -12,6 +12,7 @@ import { ThinkingIndicator } from "@spacezero/ui/components/assistant-ui/element
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactElement,
@@ -270,6 +271,7 @@ export function SavedConversationThread({
   readonly store: SavedConversationStore;
 }): ReactElement {
   const projection = useSavedConversationSnapshot(store);
+  const storeLifecycleGeneration = useRef(0);
   const [retrying, setRetrying] = useState(false);
   const sessionKey = `${projection.session.kind}:${projection.session.id}`;
   const activeStopTarget = useMemo(
@@ -294,8 +296,15 @@ export function SavedConversationThread({
   const interrupted = useMemo(() => interruptedRun(projection), [projection]);
 
   useEffect(() => {
+    const lifecycleGeneration = storeLifecycleGeneration.current + 1;
+    storeLifecycleGeneration.current = lifecycleGeneration;
     void store.load().catch(() => undefined);
-    return () => store.dispose();
+    return () => {
+      queueMicrotask(() => {
+        if (storeLifecycleGeneration.current === lifecycleGeneration)
+          store.dispose();
+      });
+    };
   }, [store]);
 
   const retryFailedTurn = () => {

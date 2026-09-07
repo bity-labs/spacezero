@@ -14,6 +14,7 @@ import {
   type ListGlobalChatSessionSkillsResult,
   type ListProjectSessionSkillsResult,
 } from "@spacezero/host-contracts";
+import { withHostCallDebugLogging } from "../connection/host-call-logging.js";
 
 export interface AgentResourcesClient {
   readonly listSessionSkills: (
@@ -78,7 +79,7 @@ const runClient = async <A>(
 export const createAgentResourcesClient = (
   options: AgentResourcesClientOptions,
 ): AgentResourcesClient => {
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = options.fetch ?? withHostCallDebugLogging(globalThis.fetch);
   const descriptor = async () =>
     parseHostConnectionDescriptor(await options.getConnectionDescriptor());
   return {

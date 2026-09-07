@@ -12,6 +12,7 @@ import {
   type HostConnectionDescriptor,
   type HostConnectionSnapshot,
 } from "@spacezero/host-contracts";
+import { withHostCallDebugLogging } from "./host-call-logging.js";
 
 export interface HostConnectedResult {
   readonly snapshot: HostConnectionSnapshot;
@@ -113,7 +114,7 @@ export const createLocalHostConnectionClient = (
   options: LocalHostConnectionClientOptions,
 ): LocalHostConnectionClient => {
   const startupTimeoutMs = options.startupTimeoutMs ?? 5000;
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = options.fetch ?? withHostCallDebugLogging(globalThis.fetch);
   let controller: AbortController | undefined;
   return {
     connect: async () => {

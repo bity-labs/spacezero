@@ -15,6 +15,7 @@ import {
   type ProviderAuthOption,
   type ProviderAuthStatus,
 } from "@spacezero/host-contracts";
+import { withHostCallDebugLogging } from "../connection/host-call-logging.js";
 
 export interface HarnessAuthClient {
   readonly listProviderAuthOptions: () => Promise<
@@ -119,7 +120,7 @@ const providerOptionsFromResult = (
 export const createHarnessAuthClient = (
   options: HarnessAuthClientOptions,
 ): HarnessAuthClient => {
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = options.fetch ?? withHostCallDebugLogging(globalThis.fetch);
   const descriptor = async () =>
     parseHostConnectionDescriptor(await options.getConnectionDescriptor());
   return {

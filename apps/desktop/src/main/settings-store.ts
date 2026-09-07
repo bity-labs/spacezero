@@ -1,4 +1,5 @@
 import { app } from "electron";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -241,7 +242,7 @@ async function writeSettingsFileContent(
   content: DesktopSettings & { lastActiveGlobalChatSessionId: string | null },
 ): Promise<void> {
   await mkdir(dirname(settingsPath), { recursive: true });
-  const temporaryPath = `${settingsPath}.${process.pid}.tmp`;
+  const temporaryPath = `${settingsPath}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify(content, null, 2)}\n`, "utf8");
   await rename(temporaryPath, settingsPath);
 }

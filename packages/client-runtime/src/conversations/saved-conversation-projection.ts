@@ -608,6 +608,32 @@ const upsertMessage = (
   );
 };
 
+const assignUserMessageToTurn = (
+  messages: readonly SavedConversationMessage[],
+  input: { readonly userMessageId: string; readonly turnId: string },
+): readonly SavedConversationMessage[] =>
+  messages.map((message) =>
+    message.role === "user" && message.id === input.userMessageId
+      ? messageWithParts({ ...message, turnId: input.turnId })
+      : message,
+  );
+
+const assignLatestUnassignedUserMessageToTurn = (
+  messages: readonly SavedConversationMessage[],
+  turnId: string,
+): readonly SavedConversationMessage[] => {
+  const userMessage = [...messages]
+    .reverse()
+    .find(
+      (message) => message.role === "user" && message.turnId === undefined,
+    );
+  if (!userMessage) return messages;
+  return assignUserMessageToTurn(messages, {
+    userMessageId: userMessage.id,
+    turnId,
+  });
+};
+
 const setAssistantText = (
   messages: readonly SavedConversationMessage[],
   input: {
@@ -750,7 +776,7 @@ const applyDurableEvent = (
           latestTurnId: event.turnId,
         },
         messages: upsertMessage(
-          base.messages,
+          assignLatestUnassignedUserMessageToTurn(base.messages, event.turnId),
           messageWithParts({
             id: event.messageId,
             role: "assistant",
@@ -1505,6 +1531,10 @@ export const createSavedConversationStore = ({
         );
         publish({
           ...reconciled,
+          messages: assignUserMessageToTurn(reconciled.messages, {
+            userMessageId: result.turn.userMessageId,
+            turnId: result.turn.id,
+          }),
           runtime: runtimeStatus(result.turn, result.turn),
           actions: actions({
             canSend: canSend(),

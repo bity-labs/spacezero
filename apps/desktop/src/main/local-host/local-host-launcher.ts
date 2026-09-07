@@ -69,8 +69,12 @@ export const launchLocalHost = async (
     env: { PATH: process.env.PATH ?? "" },
     stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", "pipe"],
   }) as ChildProcessWithoutNullStreams & { readonly stdio: readonly unknown[] };
-  child.stdout.resume();
-  child.stderr.resume();
+  child.stdout.on("data", (chunk) => {
+    console.log(`[workspace-host] ${String(chunk).trimEnd()}`);
+  });
+  child.stderr.on("data", (chunk) => {
+    console.error(`[workspace-host] ${String(chunk).trimEnd()}`);
+  });
   child.on("error", () => undefined);
   const closed = waitForClose(child);
   const lifetime = child.stdio[5] as WriteStream;
