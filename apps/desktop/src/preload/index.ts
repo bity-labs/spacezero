@@ -47,6 +47,10 @@ export interface SpaceZeroPreloadApi {
     url: string,
   ) => Promise<{ readonly status: "opened" }>;
   readonly selectProjectFolder: () => Promise<ProjectFolderPickerResult>;
+  readonly lastActiveGlobalChatSession: {
+    readonly get: () => Promise<string | null>;
+    readonly set: (sessionId: string | null) => Promise<void>;
+  };
   readonly settings: {
     readonly get: () => Promise<DesktopSettings>;
     readonly getLanguageSettings: () => Promise<LanguageSettings>;
@@ -75,6 +79,17 @@ const api: SpaceZeroPreloadApi = Object.freeze({
     ipcRenderer.invoke(
       "spacezero:select-project-folder",
     ) as Promise<ProjectFolderPickerResult>,
+  lastActiveGlobalChatSession: Object.freeze({
+    get: () =>
+      ipcRenderer.invoke(
+        "spacezero:settings:get-last-active-global-chat-session",
+      ) as Promise<string | null>,
+    set: (sessionId: string | null) =>
+      ipcRenderer.invoke(
+        "spacezero:settings:set-last-active-global-chat-session",
+        sessionId,
+      ) as Promise<void>,
+  }),
   settings: Object.freeze({
     get: () =>
       ipcRenderer.invoke("spacezero:settings:get") as Promise<DesktopSettings>,
