@@ -430,20 +430,24 @@ describe("SavedConversationThread", () => {
   });
 
   it("does not leak messages when switching stores", async () => {
-    const firstStore = loadedStore({
-      kind: "project",
-      sessionId: "project-session-1",
-      title: "margaux",
-      messages: [
-        {
-          id: "project-message-1",
-          role: "user",
-          text: "Project-only history",
-          sequence: 1,
-          createdAt: timestamp,
-        },
-      ],
-    });
+    const firstStoreDispose = vi.fn();
+    const firstStore = {
+      ...loadedStore({
+        kind: "project",
+        sessionId: "project-session-1",
+        title: "margaux",
+        messages: [
+          {
+            id: "project-message-1",
+            role: "user",
+            text: "Project-only history",
+            sequence: 1,
+            createdAt: timestamp,
+          },
+        ],
+      }),
+      dispose: firstStoreDispose,
+    } satisfies SavedConversationStore;
     const secondStore = loadedStore({
       kind: "global",
       sessionId: "global-session-1",
@@ -468,6 +472,7 @@ describe("SavedConversationThread", () => {
       expect(
         screen.queryByText("Project-only history"),
       ).not.toBeInTheDocument();
+      expect(firstStoreDispose).toHaveBeenCalledTimes(1);
     });
   });
 

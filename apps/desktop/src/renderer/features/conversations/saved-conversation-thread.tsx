@@ -291,6 +291,7 @@ export function SavedConversationThread({
 }): ReactElement {
   const projection = useSavedConversationSnapshot(store);
   const storeLifecycleGeneration = useRef(0);
+  const activeStoreRef = useRef(store);
   const [retrying, setRetrying] = useState(false);
   const sessionKey = `${projection.session.kind}:${projection.session.id}`;
   const activeStopTarget = useMemo(
@@ -325,11 +326,16 @@ export function SavedConversationThread({
   useEffect(() => {
     const lifecycleGeneration = storeLifecycleGeneration.current + 1;
     storeLifecycleGeneration.current = lifecycleGeneration;
+    activeStoreRef.current = store;
     void store.load().catch(() => undefined);
     return () => {
+      const cleanupStore = store;
       queueMicrotask(() => {
-        if (storeLifecycleGeneration.current === lifecycleGeneration)
-          store.dispose();
+        if (
+          activeStoreRef.current !== cleanupStore ||
+          storeLifecycleGeneration.current === lifecycleGeneration
+        )
+          cleanupStore.dispose();
       });
     };
   }, [store]);
