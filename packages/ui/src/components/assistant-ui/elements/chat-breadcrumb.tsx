@@ -121,14 +121,16 @@ const ChatBreadcrumb = ({
                 />
               ) : null}
             </button>
-            <button
-              type="button"
-              aria-label={renameLabel}
-              className="hover:bg-foreground/[0.06] dark:hover:bg-foreground/[0.09] text-muted-foreground hover:text-foreground flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={startEditing}
-            >
-              <PencilIcon className="size-3.5" aria-hidden="true" />
-            </button>
+            {onRename ? (
+              <button
+                type="button"
+                aria-label={renameLabel}
+                className="hover:bg-foreground/[0.06] dark:hover:bg-foreground/[0.09] text-muted-foreground hover:text-foreground flex size-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onClick={startEditing}
+              >
+                <PencilIcon className="size-3.5" aria-hidden="true" />
+              </button>
+            ) : null}
             {menuOpen && chats.length > 0 ? (
               <div
                 role="menu"

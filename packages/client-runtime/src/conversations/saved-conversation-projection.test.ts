@@ -8,6 +8,7 @@ import {
   type SavedConversationProjection,
 } from "./saved-conversation-projection.js";
 import type {
+  GlobalChatSessionEventEnvelope,
   ProjectSessionEventEnvelope,
   ProjectSessionLiveEventEnvelope,
 } from "@spacezero/host-contracts";
@@ -68,6 +69,85 @@ const observeSnapshots = (store: {
 };
 
 describe("saved conversation projection", () => {
+  it("keeps the original prompt retryable when a newly created Global Chat turn fails", async () => {
+    let deliverEvent:
+      | ((event: GlobalChatSessionEventEnvelope) => void)
+      | undefined;
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: globalChatDraftSessionId,
+      load: async () => ({ title: "New chat", lastSequence: 0, messages: [] }),
+      createWithFirstPrompt: vi.fn(async ({ prompt, commandId }) => ({
+        session: {
+          id: "global-session-1",
+          title: "First prompt",
+          archived: false,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          lastSequence: 2,
+        },
+        turn: {
+          id: "turn-1",
+          commandId,
+          state: "running" as const,
+          userMessageId: "user-message-1",
+          assistantMessageId: "assistant-message-1",
+          assistantMessageIds: ["assistant-message-1"],
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          draftMessages: [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        userMessage: {
+          id: "user-message-1",
+          role: "user" as const,
+          text: prompt,
+          sequence: 2,
+          createdAt: timestamp,
+        },
+      })),
+      subscribeEvents: (input) => {
+        deliverEvent = input.onEvent as (
+          event: GlobalChatSessionEventEnvelope,
+        ) => void;
+        input.onOpen?.();
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      },
+    });
+
+    await store.load();
+    await store.send("First prompt");
+    deliverEvent?.({
+      sequence: 3,
+      eventType: "GlobalChatAgentTurnFailedV1",
+      event: {
+        type: "GlobalChatAgentTurnFailedV1",
+        version: 1,
+        sessionId: "global-session-1",
+        turnId: "turn-1",
+        reason: "provider_error",
+        failureCategory: "provider",
+        retryable: true,
+        timestamp,
+      },
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      runtime: { status: "failed", latestTurnId: "turn-1" },
+      messages: [
+        {
+          id: "user-message-1",
+          role: "user",
+          text: "First prompt",
+          turnId: "turn-1",
+        },
+      ],
+    });
+  });
+
   it("loads an archived Global Chat Session read-only with send blocked, and unarchive events re-enable sending", async () => {
     let deliverEvent: ((event: unknown) => void) | undefined;
     const client = {

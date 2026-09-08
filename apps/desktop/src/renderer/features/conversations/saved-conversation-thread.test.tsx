@@ -5,7 +5,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { StrictMode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createGlobalChatSessionSavedConversationStore,
   createSavedConversationStore,
@@ -80,6 +81,28 @@ const timestamp = "2026-01-01T00:00:00.000Z";
 describe("SavedConversationThread", () => {
   afterEach(() => cleanup());
 
+  it("finishes loading and enables draft sending under React StrictMode", async () => {
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-draft",
+      load: async () => ({ title: "New chat", lastSequence: 0, messages: [] }),
+      submitPrompt: vi.fn(),
+    });
+
+    render(
+      <StrictMode>
+        <SavedConversationThread store={store} />
+      </StrictMode>,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading chat");
+    expect(
+      await screen.findByText("No saved messages yet."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+  });
+
   it("loads Project Session saved messages into the shared Thread and leaves unsupported actions inactive", async () => {
     const store = loadedStore({
       kind: "project",
@@ -105,9 +128,7 @@ describe("SavedConversationThread", () => {
 
     render(<SavedConversationThread store={store} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Loading conversation",
-    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading chat");
     expect(await screen.findByText("What changed?")).toBeInTheDocument();
     expect(
       screen.getByText("Saved **answer** from the Host."),
@@ -409,20 +430,24 @@ describe("SavedConversationThread", () => {
   });
 
   it("does not leak messages when switching stores", async () => {
-    const firstStore = loadedStore({
-      kind: "project",
-      sessionId: "project-session-1",
-      title: "margaux",
-      messages: [
-        {
-          id: "project-message-1",
-          role: "user",
-          text: "Project-only history",
-          sequence: 1,
-          createdAt: timestamp,
-        },
-      ],
-    });
+    const firstStoreDispose = vi.fn();
+    const firstStore = {
+      ...loadedStore({
+        kind: "project",
+        sessionId: "project-session-1",
+        title: "margaux",
+        messages: [
+          {
+            id: "project-message-1",
+            role: "user",
+            text: "Project-only history",
+            sequence: 1,
+            createdAt: timestamp,
+          },
+        ],
+      }),
+      dispose: firstStoreDispose,
+    } satisfies SavedConversationStore;
     const secondStore = loadedStore({
       kind: "global",
       sessionId: "global-session-1",
@@ -447,6 +472,7 @@ describe("SavedConversationThread", () => {
       expect(
         screen.queryByText("Project-only history"),
       ).not.toBeInTheDocument();
+      expect(firstStoreDispose).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -675,6 +701,9 @@ describe("SavedConversationThread", () => {
       await screen.findByText("Reading workspace status"),
     ).toBeInTheDocument();
     expect(
+      screen.queryByLabelText("Assistant is typing"),
+    ).not.toBeInTheDocument();
+    expect(
       screen.queryByText("Assistant is responding."),
     ).not.toBeInTheDocument();
   });
@@ -770,7 +799,20 @@ describe("SavedConversationThread", () => {
           userMessageId: "running-user-message",
           assistantMessageId: "running-assistant-message",
           assistantMessageIds: ["running-assistant-message"],
-          draftMessages: [],
+          draftMessages: [
+            {
+              id: "running-assistant-message",
+              text: "Partial answer",
+              parts: [
+                {
+                  id: "running-assistant-message:text:1",
+                  type: "text" as const,
+                  order: 1,
+                  text: "Partial answer",
+                },
+              ],
+            },
+          ],
           providerId: "anthropic",
           modelId: "claude-sonnet-4-5",
           thinkingLevel: "off" as const,
@@ -799,9 +841,11 @@ describe("SavedConversationThread", () => {
 
     render(<SavedConversationThread store={store} />);
 
+    expect(await screen.findByText("Partial answer")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
     expect(
-      await screen.findByText("Assistant is responding."),
-    ).toBeInTheDocument();
+      screen.queryByLabelText("Assistant is typing"),
+    ).not.toBeInTheDocument();
     const input = screen.getByRole("textbox", { name: "Message" });
     fireEvent.change(input, { target: { value: "Follow up while running" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1003,8 +1047,9 @@ describe("SavedConversationThread", () => {
     const { rerender } = render(<SavedConversationThread store={running} />);
 
     expect(
-      await screen.findByText("Assistant is responding."),
+      await screen.findByLabelText("Assistant is typing"),
     ).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
 
     rerender(<SavedConversationThread store={recovery} />);
 

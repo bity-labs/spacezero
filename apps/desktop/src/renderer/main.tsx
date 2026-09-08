@@ -6,6 +6,10 @@ import { initializeRendererI18n } from "./i18n";
 import "@spacezero/ui/globals.css";
 import "./styles.css";
 
+if (import.meta.env.VITE_SPACEZERO_DEBUG_HOST_CALLS === "1") {
+  globalThis.__SPACEZERO_DEBUG_HOST_CALLS__ = true;
+}
+
 void Promise.all([
   initializeRendererI18n(),
   window.spacezero.settings.getAppearanceSettings().then((settings) => applyAppearanceSettings(settings)),

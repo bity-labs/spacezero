@@ -14,6 +14,7 @@ import {
   type UpdateAgentRuntimeDefaultsRequest,
   type UpdateAgentRuntimeDefaultsResult,
 } from "@spacezero/host-contracts";
+import { withHostCallDebugLogging } from "../connection/host-call-logging.js";
 
 export interface AgentRuntimeClient {
   readonly listAgentRuntimeModels: () => Promise<ListAgentRuntimeModelsResult>;
@@ -79,7 +80,7 @@ const runClient = async <A>(
 export const createAgentRuntimeClient = (
   options: AgentRuntimeClientOptions,
 ): AgentRuntimeClient => {
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = options.fetch ?? withHostCallDebugLogging(globalThis.fetch);
   const descriptor = async () =>
     parseHostConnectionDescriptor(await options.getConnectionDescriptor());
   return {

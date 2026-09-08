@@ -37,6 +37,7 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
   AgentTurnError,
+  type AgentConfirmedMutationTool,
   type AgentReadOnlyInspectionTool,
   type AgentToolDisplayContent,
   type AgentToolJsonObject,
@@ -316,13 +317,19 @@ const workspaceTools = (env: ExecutionEnv): AgentTool[] => {
 /** Wraps a Host-provided read-only inspection tool as a Pi Agent tool. Tool
  * results are serialized JSON so the raw host output never gains path or
  * secret semantics beyond the shared content policy sanitization. */
-const inspectionTool = (tool: AgentReadOnlyInspectionTool): AgentTool => ({
-  name: tool.name,
-  description: tool.description,
-  label: tool.name,
-  parameters: tool.parameters as never,
+const providerSafeToolName = (name: string): string =>
+  name.replace(/[^a-zA-Z0-9_-]/gu, "_");
+
+const inspectionTool = (input: {
+  readonly tool: AgentReadOnlyInspectionTool;
+  readonly providerName: string;
+}): AgentTool => ({
+  name: input.providerName,
+  description: input.tool.description,
+  label: input.providerName,
+  parameters: input.tool.parameters as never,
   execute: async (_toolCallId, params) => {
-    const output = await tool.execute(params as AgentToolJsonObject);
+    const output = await input.tool.execute(params as AgentToolJsonObject);
     return {
       content: [{ type: "text", text: JSON.stringify(output) }],
       details: output,
@@ -330,9 +337,38 @@ const inspectionTool = (tool: AgentReadOnlyInspectionTool): AgentTool => ({
   },
 });
 
+const toolNameMappings = (
+  tools: readonly (AgentReadOnlyInspectionTool | AgentConfirmedMutationTool)[],
+): {
+  readonly providerNameForHostName: Map<string, string>;
+  readonly hostNameForProviderName: Map<string, string>;
+} => {
+  const providerNameForHostName = new Map<string, string>();
+  const hostNameForProviderName = new Map<string, string>();
+  for (const tool of tools) {
+    const base = providerSafeToolName(tool.name);
+    let providerName = base;
+    let suffix = 2;
+    while (hostNameForProviderName.has(providerName)) {
+      providerName = `${base}_${suffix}`;
+      suffix += 1;
+    }
+    providerNameForHostName.set(tool.name, providerName);
+    hostNameForProviderName.set(providerName, tool.name);
+  }
+  return { providerNameForHostName, hostNameForProviderName };
+};
+
 const toInspectionAgentTools = (
   tools: readonly AgentReadOnlyInspectionTool[],
-): AgentTool[] => tools.map(inspectionTool);
+  providerNameForHostName: Map<string, string>,
+): AgentTool[] =>
+  tools.map((tool) =>
+    inspectionTool({
+      tool,
+      providerName: providerNameForHostName.get(tool.name) ?? tool.name,
+    }),
+  );
 
 const assistantMessagesAfter = (
   messages: readonly AgentMessage[],
@@ -358,6 +394,7 @@ const safePartsFromAssistantMessage = (
       value: unknown,
     ) => AgentToolJsonObject | undefined;
     readonly completedToolParts: readonly AgentTurnContentPart[];
+    readonly toHostToolName: (toolName: string) => string;
   },
 ): readonly AgentTurnContentPart[] => {
   let order = 0;
@@ -373,10 +410,11 @@ const safePartsFromAssistantMessage = (
         { type: "reasoning" as const, order: ++order, text: content.thinking },
       ];
     if (content.type === "toolCall") {
+      const hostToolName = options.toHostToolName(content.name);
       const completed = options.completedToolParts.find(
         (part) =>
           part.type === "tool-call" &&
-          (part.toolCallId === content.id || part.toolName === content.name),
+          (part.toolCallId === content.id || part.toolName === hostToolName),
       );
       const sanitizedArguments = options.sanitizeArguments(content.arguments);
       return [
@@ -384,7 +422,7 @@ const safePartsFromAssistantMessage = (
           type: "tool-call" as const,
           order: ++order,
           toolCallId: content.id,
-          toolName: content.name,
+          toolName: hostToolName,
           status:
             completed?.type === "tool-call" ? completed.status : "running",
           ...(sanitizedArguments === undefined
@@ -481,15 +519,22 @@ export function createPiConversationRunner(
         input.tools.kind === "inspectionWithConfirmedMutation"
           ? input.tools.confirmedTools
           : [];
-      const inspectionTools =
+      const hostInspectionTools =
         input.tools.kind === "readOnlyInspection"
-          ? toInspectionAgentTools(input.tools.tools)
+          ? input.tools.tools
           : input.tools.kind === "inspectionWithConfirmedMutation"
-            ? toInspectionAgentTools([
-                ...input.tools.tools,
-                ...confirmedMutationTools,
-              ])
+            ? [...input.tools.tools, ...confirmedMutationTools]
             : [];
+      const { providerNameForHostName, hostNameForProviderName } =
+        toolNameMappings(hostInspectionTools);
+      const toHostToolName = (toolName: string): string =>
+        hostNameForProviderName.get(toolName) ?? toolName;
+      const toProviderToolName = (toolName: string): string =>
+        providerNameForHostName.get(toolName) ?? toolName;
+      const inspectionTools = toInspectionAgentTools(
+        hostInspectionTools,
+        providerNameForHostName,
+      );
       const toolContentPolicy = createPublicToolContentPolicy({
         ...(worktreeRoot === undefined ? {} : { worktreeRoot }),
         ...(config.protectedPathRoots === undefined
@@ -499,14 +544,14 @@ export function createPiConversationRunner(
       });
       const enabledToolNames =
         input.tools.kind === "readOnlyInspection"
-          ? input.tools.tools.map((tool) => tool.name)
+          ? input.tools.tools.map((tool) => toProviderToolName(tool.name))
           : input.tools.kind === "inspectionWithConfirmedMutation"
-            ? [...input.tools.tools, ...confirmedMutationTools].map(
-                (tool) => tool.name,
+            ? [...input.tools.tools, ...confirmedMutationTools].map((tool) =>
+                toProviderToolName(tool.name),
               )
             : input.tools.enabledToolNames;
-      const confirmedMutationNames = confirmedMutationTools.map(
-        (tool) => tool.name,
+      const confirmedMutationNames = confirmedMutationTools.map((tool) =>
+        toProviderToolName(tool.name),
       );
       const confirmToolCall =
         input.tools.kind === "inspectionWithConfirmedMutation"
@@ -533,7 +578,7 @@ export function createPiConversationRunner(
             await input.onEvent?.({
               type: "tool_denied",
               toolCallId: toolCall.id,
-              toolName: toolCall.name,
+              toolName: toHostToolName(toolCall.name),
               reason: "Tool is not enabled for this Chat Session",
             });
             return {
@@ -551,7 +596,7 @@ export function createPiConversationRunner(
             confirmedMutationNames.includes(toolCall.name)
           ) {
             const decision = await confirmToolCall({
-              toolName: toolCall.name,
+              toolName: toHostToolName(toolCall.name),
               args: (args ?? {}) as AgentToolJsonObject,
             });
             if (!decision.approved) {
@@ -559,7 +604,7 @@ export function createPiConversationRunner(
               await input.onEvent?.({
                 type: "tool_denied",
                 toolCallId: toolCall.id,
-                toolName: toolCall.name,
+                toolName: toHostToolName(toolCall.name),
                 reason,
               });
               return {
@@ -685,7 +730,7 @@ export function createPiConversationRunner(
               type: "tool-call" as const,
               order,
               toolCallId: event.toolCallId,
-              toolName: event.toolName,
+              toolName: toHostToolName(event.toolName),
               status: "running" as const,
               ...(toolContentPolicy.sanitizeJsonObject(event.args) === undefined
                 ? {}
@@ -699,7 +744,7 @@ export function createPiConversationRunner(
             await input.onEvent?.({
               type: "tool_started",
               toolCallId: event.toolCallId,
-              toolName: event.toolName,
+              toolName: toHostToolName(event.toolName),
               ...(toolPart.arguments === undefined
                 ? {}
                 : { arguments: toolPart.arguments }),
@@ -711,7 +756,7 @@ export function createPiConversationRunner(
               await input.onEvent?.({
                 type: "tool_denied",
                 toolCallId: event.toolCallId,
-                toolName: event.toolName,
+                toolName: toHostToolName(event.toolName),
                 reason: "Tool is not enabled for this Chat Session",
               });
             break;
@@ -720,7 +765,7 @@ export function createPiConversationRunner(
             await input.onEvent?.({
               type: "tool_updated",
               toolCallId: event.toolCallId,
-              toolName: event.toolName,
+              toolName: toHostToolName(event.toolName),
               summary: "Tool progress updated.",
             });
             break;
@@ -736,7 +781,7 @@ export function createPiConversationRunner(
                     type: "tool-call" as const,
                     order,
                     toolCallId: event.toolCallId,
-                    toolName: event.toolName,
+                    toolName: toHostToolName(event.toolName),
                   }),
               status: event.isError
                 ? ("failed" as const)
@@ -747,7 +792,7 @@ export function createPiConversationRunner(
             await input.onEvent?.({
               type: "tool_completed",
               toolCallId: event.toolCallId,
-              toolName: event.toolName,
+              toolName: toHostToolName(event.toolName),
               isError: event.isError,
               ...(result === undefined ? {} : { result }),
             });
@@ -763,13 +808,22 @@ export function createPiConversationRunner(
           agent.state.messages,
           initialMessageCount,
         );
-        if (
-          assistants.some(
-            (assistant) =>
-              assistant.stopReason === "error" || assistant.errorMessage,
-          )
-        )
+        const failedAssistants = assistants.filter(
+          (assistant) =>
+            assistant.stopReason === "error" || assistant.errorMessage,
+        );
+        if (failedAssistants.length > 0) {
+          console.error("pi conversation failed", {
+            sessionId: input.sessionId,
+            providerId: input.runtime.providerId,
+            modelId: input.runtime.modelId,
+            assistants: failedAssistants.map((assistant) => ({
+              stopReason: assistant.stopReason,
+              errorMessage: assistant.errorMessage,
+            })),
+          });
           throw new AgentTurnError("agent_turn_failed");
+        }
         if (
           assistants.some((assistant) => assistant.stopReason === "aborted")
         ) {
@@ -813,7 +867,7 @@ export function createPiConversationRunner(
                 type: "tool-call" as const,
                 order: 1,
                 toolCallId: message.toolCallId,
-                toolName: message.toolName,
+                toolName: toHostToolName(message.toolName),
                 status: message.isError ? "failed" : "succeeded",
                 result: { content },
               },
@@ -827,6 +881,7 @@ export function createPiConversationRunner(
               toolContentPolicy.sanitizeJsonObject(value) as
                 AgentToolJsonObject | undefined,
             completedToolParts,
+            toHostToolName,
           });
           return parts.length > 0 ? { text, parts } : { text };
         });
@@ -849,9 +904,16 @@ export function createPiConversationRunner(
               : [{ type: "text", order: 1, text: legacyText }],
           ...(messages.length <= 1 ? {} : { messages }),
         };
-      } catch {
+      } catch (error) {
         if (input.signal?.aborted)
           throw new AgentTurnError("agent_turn_interrupted");
+        if (!(error instanceof AgentTurnError))
+          console.error("pi conversation threw", {
+            sessionId: input.sessionId,
+            providerId: input.runtime.providerId,
+            modelId: input.runtime.modelId,
+            error,
+          });
         throw new AgentTurnError("agent_turn_failed");
       } finally {
         unsubscribe();

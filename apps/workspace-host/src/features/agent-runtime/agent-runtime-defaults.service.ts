@@ -103,17 +103,12 @@ export const createAgentRuntimeDefaultsService = (options: {
             "thinking_level_unsupported",
           );
         nextThinking = request.defaultThinkingLevel;
-      } else if (
-        request.defaultModel &&
-        current.defaultThinkingLevel !== null &&
-        targetModel
-      ) {
-        nextThinking = isSupportedThinkingLevel(
-          targetModel,
-          current.defaultThinkingLevel,
-        )
-          ? current.defaultThinkingLevel
-          : (targetModel.supportedThinkingLevels[0] ?? null);
+      } else if (request.defaultModel && targetModel) {
+        nextThinking =
+          current.defaultThinkingLevel !== null &&
+          isSupportedThinkingLevel(targetModel, current.defaultThinkingLevel)
+            ? current.defaultThinkingLevel
+            : (targetModel.supportedThinkingLevels[0] ?? null);
       } else {
         nextThinking = current.defaultThinkingLevel;
       }

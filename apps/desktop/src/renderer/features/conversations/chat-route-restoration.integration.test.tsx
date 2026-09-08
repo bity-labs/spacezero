@@ -134,9 +134,7 @@ const installApp = (options: {
         return hostConnectedStream();
       if (parsed.pathname === "/v1/global-chat-sessions")
         return json({
-          sessions: sessionAvailable
-            ? [savedSession.session]
-            : [],
+          sessions: sessionAvailable ? [savedSession.session] : [],
         });
       return new Response("not found", { status: 404 });
     }),
@@ -187,7 +185,10 @@ describe("Global Chat route restoration", () => {
       await screen.findByRole("heading", { name: "Global prompt" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
-      "Global Chat Session",
+      "Chats",
+    );
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "Global prompt",
     );
     expect(storage.get).toBeGreaterThanOrEqual(1);
     expect(storage.set.at(-1)).toEqual([globalChatSessionId]);
@@ -209,9 +210,7 @@ describe("Global Chat route restoration", () => {
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
       "All chats",
     );
-    expect(
-      await screen.findByText("No chats yet"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("No chats yet")).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Global prompt" }),
     ).not.toBeInTheDocument();
@@ -274,9 +273,7 @@ describe("Global Chat route restoration", () => {
     });
 
     // Leave Global Chat: the marker clears so a restart does not restore it.
-    (
-      await screen.findByRole("button", { name: "Agent Capabilities" })
-    ).click();
+    (await screen.findByRole("button", { name: "Agent Capabilities" })).click();
 
     await waitFor(() => {
       expect(storage.set.at(-1)).toEqual([null]);
@@ -287,9 +284,7 @@ describe("Global Chat route restoration", () => {
     expect(storage.set.length).toBeGreaterThan(0);
     for (const [value] of storage.set) {
       if (value === null) continue;
-      expect(value === "all-chats" || value === globalChatSessionId).toBe(
-        true,
-      );
+      expect(value === "all-chats" || value === globalChatSessionId).toBe(true);
       expect(value.includes(descriptor.clientCapability)).toBe(false);
     }
   });

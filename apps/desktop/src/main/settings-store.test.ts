@@ -64,6 +64,20 @@ describe("DesktopSettingsStore last active Global Chat route marker", () => {
     expect(raw.lastActiveGlobalChatSessionId).toBeNull();
   });
 
+  it("handles concurrent marker writes without losing the temporary file", async () => {
+    const store = new DesktopSettingsStore(settingsPath);
+
+    await expect(
+      Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          store.setLastActiveGlobalChatSessionId(`session-${index}`),
+        ),
+      ),
+    ).resolves.toHaveLength(20);
+
+    expect(await store.getLastActiveGlobalChatSessionId()).toMatch(/^session-\d+$/);
+  });
+
   it("keeps the marker when user preferences are updated", async () => {
     const store = new DesktopSettingsStore(settingsPath);
     await store.setLastActiveGlobalChatSessionId("abc-123");

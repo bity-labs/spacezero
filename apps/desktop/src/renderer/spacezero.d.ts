@@ -40,6 +40,16 @@ type DesktopSettings = {
 };
 
 declare global {
+  interface ImportMetaEnv {
+    readonly VITE_SPACEZERO_DEBUG_HOST_CALLS?: string;
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+
+  var __SPACEZERO_DEBUG_HOST_CALLS__: boolean | undefined;
+
   interface Window {
     readonly spacezero: {
       readonly getAppVersion: () => Promise<string>;

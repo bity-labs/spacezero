@@ -7,7 +7,13 @@ import type {
   GetGlobalChatSessionRuntimeResult,
   UpdateGlobalChatSessionRuntimeResult,
 } from "@spacezero/host-contracts";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../../i18n/index.js";
 
@@ -15,11 +21,14 @@ import {
   GlobalChatSessionRuntimeSelector,
   nextThinkingLevelForModel,
   runtimeModelOptionsFromDescriptors,
+  type GlobalChatSessionRuntimeSelectorClients,
 } from "./global-chat-session-runtime-selector.js";
 
 const sessionId = "22222222-2222-4222-8222-222222222222";
 
-const descriptor = (overrides: Partial<AgentModelDescriptor>): AgentModelDescriptor => ({
+const descriptor = (
+  overrides: Partial<AgentModelDescriptor>,
+): AgentModelDescriptor => ({
   providerId: "anthropic",
   providerDisplayName: "Anthropic",
   modelId: "claude-sonnet-4-5",
@@ -90,17 +99,34 @@ const fakeClients = ({
       return (
         updateResult ?? {
           session: runtime.session,
-          runtime: { ...runtime.runtime, revision: runtime.runtime.revision + 1 },
+          runtime: {
+            ...runtime.runtime,
+            revision: runtime.runtime.revision + 1,
+          },
         }
       );
     }),
-  } as unknown as Pick<GlobalChatSessionClient, "getRuntime" | "updateRuntime"> &
+  } as unknown as Pick<
+    GlobalChatSessionClient,
+    "getRuntime" | "updateRuntime"
+  > &
     Record<string, ReturnType<typeof vi.fn>>;
   const agentRuntime = {
     listAgentRuntimeModels: vi.fn(async () => ({ models: catalog })),
   } as unknown as Pick<AgentRuntimeClient, "listAgentRuntimeModels"> &
     Record<string, ReturnType<typeof vi.fn>>;
   return { chat, agentRuntime };
+};
+
+const renderSelector = (
+  clients: GlobalChatSessionRuntimeSelectorClients,
+): void => {
+  render(
+    <GlobalChatSessionRuntimeSelector
+      sessionId={sessionId}
+      clients={clients}
+    />,
+  );
 };
 
 afterEach(() => {
@@ -121,7 +147,9 @@ describe("Global Chat Session runtime selector", () => {
   });
 
   it("keeps the current thinking level only when the new model supports it", () => {
-    const sonnet = models.find((model) => model.modelId === "claude-sonnet-4-5");
+    const sonnet = models.find(
+      (model) => model.modelId === "claude-sonnet-4-5",
+    );
     const haiku = models.find((model) => model.modelId === "claude-haiku-4-5");
     const gpt5 = models.find((model) => model.modelId === "gpt-5");
     expect(sonnet).toBeDefined();
@@ -135,19 +163,14 @@ describe("Global Chat Session runtime selector", () => {
 
   it("loads the runtime configuration and sanitized model catalog into the selector", async () => {
     const clients = fakeClients();
-    render(
-      <GlobalChatSessionRuntimeSelector
-        sessionId={sessionId}
-        clients={clients}
-      />,
-    );
+    renderSelector(clients);
 
     await waitFor(() => {
       expect(clients.chat.getRuntime).toHaveBeenCalledWith(sessionId);
       expect(clients.agentRuntime.listAgentRuntimeModels).toHaveBeenCalled();
     });
     expect(
-      screen.getByTestId("session-runtime-model-selector-trigger"),
+      await screen.findByTestId("session-runtime-model-selector-trigger"),
     ).toHaveTextContent("Claude Haiku 4.5");
   });
 
@@ -158,19 +181,16 @@ describe("Global Chat Session runtime selector", () => {
         defaultThinkingLevel: "low",
       }),
     });
-    render(
-      <GlobalChatSessionRuntimeSelector
-        sessionId={sessionId}
-        clients={clients}
-      />,
-    );
+    renderSelector(clients);
 
     await waitFor(() => {
       expect(
         screen.getByTestId("session-runtime-model-selector-trigger"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("session-runtime-model-selector-trigger"));
+    fireEvent.click(
+      screen.getByTestId("session-runtime-model-selector-trigger"),
+    );
     const high = screen.getByRole("radio", { name: "High" });
     fireEvent.click(high);
 
@@ -186,19 +206,16 @@ describe("Global Chat Session runtime selector", () => {
 
   it("applies model changes through the same Host-owned runtime configuration", async () => {
     const clients = fakeClients();
-    render(
-      <GlobalChatSessionRuntimeSelector
-        sessionId={sessionId}
-        clients={clients}
-      />,
-    );
+    renderSelector(clients);
 
     await waitFor(() => {
       expect(
         screen.getByTestId("session-runtime-model-selector-trigger"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("session-runtime-model-selector-trigger"));
+    fireEvent.click(
+      screen.getByTestId("session-runtime-model-selector-trigger"),
+    );
     fireEvent.click(screen.getByRole("option", { name: /GPT-5/ }));
 
     await waitFor(() => {
@@ -221,19 +238,16 @@ describe("Global Chat Session runtime selector", () => {
     const clients = fakeClients({
       updateError: conflict,
     });
-    render(
-      <GlobalChatSessionRuntimeSelector
-        sessionId={sessionId}
-        clients={clients}
-      />,
-    );
+    renderSelector(clients);
 
     await waitFor(() => {
       expect(
         screen.getByTestId("session-runtime-model-selector-trigger"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("session-runtime-model-selector-trigger"));
+    fireEvent.click(
+      screen.getByTestId("session-runtime-model-selector-trigger"),
+    );
     fireEvent.click(screen.getByRole("option", { name: /GPT-5/ }));
 
     await waitFor(() => {
@@ -251,20 +265,20 @@ describe("Global Chat Session runtime selector", () => {
         throw new Error("unavailable");
       }),
       updateRuntime: vi.fn(),
-    } as unknown as Pick<GlobalChatSessionClient, "getRuntime" | "updateRuntime">;
+    } as unknown as Pick<
+      GlobalChatSessionClient,
+      "getRuntime" | "updateRuntime"
+    >;
     const agentRuntime = {
       listAgentRuntimeModels: vi.fn(async () => ({ models: [] })),
     } as unknown as Pick<AgentRuntimeClient, "listAgentRuntimeModels">;
 
-    render(
-      <GlobalChatSessionRuntimeSelector
-        sessionId={sessionId}
-        clients={{ chat, agentRuntime }}
-      />,
-    );
+    renderSelector({ chat, agentRuntime });
 
     await waitFor(() => {
-      expect(screen.getByTestId("global-chat-session-runtime-error")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("global-chat-session-runtime-error"),
+      ).toBeInTheDocument();
     });
     expect(
       screen.queryByTestId("session-runtime-model-selector-trigger"),

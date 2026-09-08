@@ -5,6 +5,7 @@ import {
   type FlowEventEnvelope,
   type HostConnectionDescriptor,
 } from "@spacezero/host-contracts";
+import { withHostCallDebugLogging } from "../connection/host-call-logging.js";
 
 export interface SubscribeFlowEventsInput {
   readonly flowId: string;
@@ -135,7 +136,7 @@ const subscription = async (
 };
 
 export const createFlowClient = (options: FlowClientOptions): FlowClient => {
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const fetchImpl = options.fetch ?? withHostCallDebugLogging(globalThis.fetch);
   const descriptor = async () =>
     parseHostConnectionDescriptor(await options.getConnectionDescriptor());
   const command = async (

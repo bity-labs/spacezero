@@ -1,38 +1,47 @@
-import { cleanup, render, waitFor, act } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSavedConversationStore } from "@spacezero/client-runtime";
-
-const threadMock = vi.hoisted(() => ({
-  stopCallbacks: [] as ((() => void) | undefined)[],
-}));
-
-vi.mock("@spacezero/ui/components/thread", () => ({
-  Thread: ({ onStop }: { readonly onStop?: () => void }) => {
-    threadMock.stopCallbacks.push(onStop);
-    return (
-      <button type="button" disabled={onStop === undefined} onClick={onStop}>
-        Stop
-      </button>
-    );
-  },
-}));
 
 const timestamp = "2026-01-01T00:00:00.000Z";
 
-const latestStopCallback = (): (() => void) | undefined =>
-  threadMock.stopCallbacks
+const latestStopCallback = (
+  callbacks: readonly ((() => void) | undefined)[],
+): (() => void) | undefined =>
+  callbacks
     .filter((callback): callback is () => void => callback !== undefined)
     .at(-1);
 
 describe("SavedConversationThread stop target binding", () => {
   afterEach(() => {
     cleanup();
-    threadMock.stopCallbacks = [];
+    vi.doUnmock("@spacezero/ui/components/thread");
+    vi.resetModules();
   });
 
   it("keeps a stale Stop callback from interrupting a newly active follow-up turn", async () => {
     let onEvent: ((event: unknown) => void) | undefined;
     const interrupted: { sessionId: string; turnId: string }[] = [];
+    const stopCallbacks: ((() => void) | undefined)[] = [];
+
+    vi.resetModules();
+    vi.doMock("@spacezero/ui/components/thread", () => ({
+      Thread: ({ onStop }: { readonly onStop?: () => void }) => {
+        stopCallbacks.push(onStop);
+        return (
+          <button
+            type="button"
+            disabled={onStop === undefined}
+            onClick={onStop}
+          >
+            Stop
+          </button>
+        );
+      },
+    }));
+
+    const { createSavedConversationStore } =
+      await import("@spacezero/client-runtime");
+    const { SavedConversationThread } =
+      await import("./saved-conversation-thread.js");
     const store = createSavedConversationStore({
       kind: "project",
       sessionId: "project-session-1",
@@ -64,13 +73,13 @@ describe("SavedConversationThread stop target binding", () => {
         interrupted.push({ sessionId, turnId });
       },
     });
-    const { SavedConversationThread } =
-      await import("./saved-conversation-thread.js");
 
     render(<SavedConversationThread store={store} />);
 
-    await waitFor(() => expect(latestStopCallback()).toBeDefined());
-    const staleStop = latestStopCallback();
+    await waitFor(() =>
+      expect(latestStopCallback(stopCallbacks)).toBeDefined(),
+    );
+    const staleStop = latestStopCallback(stopCallbacks);
     expect(staleStop).toBeDefined();
 
     act(() => {
@@ -102,18 +111,20 @@ describe("SavedConversationThread stop target binding", () => {
         },
       });
     });
-    await waitFor(() => expect(latestStopCallback()).not.toBe(staleStop));
+    await waitFor(() =>
+      expect(latestStopCallback(stopCallbacks)).not.toBe(staleStop),
+    );
     expect(interrupted).toEqual([]);
 
     staleStop?.();
     await Promise.resolve();
     expect(interrupted).toEqual([]);
 
-    latestStopCallback()?.();
+    latestStopCallback(stopCallbacks)?.();
     await waitFor(() =>
       expect(interrupted).toEqual([
         { sessionId: "project-session-1", turnId: "turn-2" },
       ]),
     );
-  });
+  }, 15_000);
 });

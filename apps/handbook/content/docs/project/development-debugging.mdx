@@ -1,0 +1,89 @@
+---
+title: Development Debugging
+description: Practical local debugging switches for Desktop, Client Runtime, and Workspace Host calls.
+---
+
+# Development Debugging
+
+Space Zero development runs two important processes:
+
+```txt
+pnpm dev
+  -> electron-vite dev server for the Desktop renderer
+  -> Electron main process
+  -> Desktop-managed Workspace Host child process
+```
+
+The Vite banner only shows the renderer dev server. Host behavior happens in the Workspace Host child process, so debugging usually needs both renderer-side Host call logs and Host-side diagnostics.
+
+## Debug Host protocol calls from the renderer
+
+Use the debug dev command:
+
+```bash
+pnpm dev:debug:host
+```
+
+This is equivalent to:
+
+```bash
+VITE_SPACEZERO_DEBUG_HOST_CALLS=1 pnpm dev
+```
+
+It enables Client Runtime fetch logging in the renderer. Logs appear in the renderer DevTools console and show the HTTP method, sanitized path, response status, and duration:
+
+```txt
+[spacezero:host] request { method: "POST", path: "/v1/global-chat-sessions" }
+[spacezero:host] response { method: "POST", path: "/v1/global-chat-sessions", status: 200, durationMs: 42 }
+```
+
+The log deliberately excludes bearer tokens, request bodies, prompts, credentials, and query strings.
+
+## Debug Workspace Host output
+
+In development, Electron main pipes Workspace Host stdout/stderr into the `pnpm dev` terminal with a prefix:
+
+```txt
+[workspace-host] {"process":"workspace-host","event":"startup"}
+[workspace-host] agent turn failed { reason: ..., sessionId: ..., turnId: ..., error: ... }
+```
+
+This is the first place to look for Host startup, bootstrap, agent-turn, Pi adapter, model, or provider failures.
+
+## Recommended loop for chat failures
+
+1. Rebuild the packages and Host if the code changed:
+
+   ```bash
+   pnpm build:packages
+   pnpm --filter @spacezero/workspace-host build
+   ```
+
+2. Start the app with Host call logging:
+
+   ```bash
+   pnpm dev:debug:host
+   ```
+
+3. Open renderer DevTools for request/response timing.
+4. Watch the terminal for `[workspace-host]` logs.
+5. Reproduce with a fresh Global Chat or Project Session.
+6. Correlate the renderer path/status with the Host `sessionId` / `turnId` diagnostics.
+
+## Manual runtime toggle
+
+For one-off debugging without restarting through the debug script, the renderer can still enable logging from DevTools:
+
+```js
+localStorage.setItem("spacezero:debug:host-calls", "1")
+location.reload()
+```
+
+Disable it with:
+
+```js
+localStorage.removeItem("spacezero:debug:host-calls")
+location.reload()
+```
+
+Prefer `pnpm dev:debug:host` for normal development debugging.

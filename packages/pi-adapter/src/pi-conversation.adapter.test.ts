@@ -685,7 +685,7 @@ describe("createPiConversationRunner", () => {
       ),
     ).resolves.toMatchObject({ text: "done" });
 
-    expect(toolNames).toEqual([["workspace.getStatus"]]);
+    expect(toolNames).toEqual([["workspace_getStatus"]]);
   });
 
   it("executes approved read-only inspection tools and records safe activity", async () => {
@@ -697,7 +697,7 @@ describe("createPiConversationRunner", () => {
     faux.setResponses([
       fauxAssistantMessage(
         fauxToolCall(
-          "globalChats.listSummaries",
+          "globalChats_listSummaries",
           { includeArchived: true },
           { id: "call-1" },
         ),
@@ -839,7 +839,7 @@ describe("createPiConversationRunner", () => {
     faux.setResponses([
       fauxAssistantMessage(
         fauxToolCall(
-          "globalChats.createWithPrompt",
+          "globalChats_createWithPrompt",
           { prompt: "Plan the week" },
           { id: "call-1" },
         ),
@@ -936,7 +936,7 @@ describe("createPiConversationRunner", () => {
     faux.setResponses([
       fauxAssistantMessage(
         fauxToolCall(
-          "globalChats.createWithPrompt",
+          "globalChats_createWithPrompt",
           { prompt: "Plan the week" },
           { id: "call-1" },
         ),

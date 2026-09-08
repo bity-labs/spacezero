@@ -1,7 +1,16 @@
-import { DotsSixVertical, MagnifyingGlass, Sidebar } from "@phosphor-icons/react";
+import {
+  DotsSixVertical,
+  MagnifyingGlass,
+  Sidebar,
+} from "@phosphor-icons/react";
 import { Button } from "@spacezero/ui/components/button";
 import { cn } from "@spacezero/ui/lib/utils";
-import type { KeyboardEvent, PointerEvent, ReactElement, ReactNode } from "react";
+import type {
+  KeyboardEvent,
+  PointerEvent,
+  ReactElement,
+  ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar/sidebar-layout";
@@ -25,7 +34,9 @@ type WorkspaceShellLayoutProps = {
   labels: WorkspaceShellLayoutLabels;
   onToggleLeftSidebar: () => void;
   onOpenCommandPalette: () => void;
-  onResizeLeftSidebarPointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
+  onResizeLeftSidebarPointerDown?: (
+    event: PointerEvent<HTMLDivElement>,
+  ) => void;
   onResizeLeftSidebarKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   overlay?: ReactNode;
 };
@@ -57,7 +68,9 @@ export function WorkspaceShellLayout({
   const titlebarGridTemplateColumns = [
     isLeftSidebarOpen ? `${leftSidebarWidth}px` : "minmax(0, 1fr)",
     "minmax(0, 1fr)",
-    typeof sidePaneHeaderWidth === "number" ? `${sidePaneHeaderWidth}px` : sidePaneHeaderWidth,
+    typeof sidePaneHeaderWidth === "number"
+      ? `${sidePaneHeaderWidth}px`
+      : sidePaneHeaderWidth,
   ].join(" ");
 
   return (
@@ -70,7 +83,9 @@ export function WorkspaceShellLayout({
         <div
           className={cn(
             "flex items-center justify-start px-3",
-            isLeftSidebarOpen ? "border-r border-sidebar-border bg-sidebar" : "bg-background",
+            isLeftSidebarOpen
+              ? "border-r border-sidebar-border bg-sidebar"
+              : "bg-background",
           )}
         >
           <div className="mac-traffic-light-space shrink-0" />
@@ -79,7 +94,11 @@ export function WorkspaceShellLayout({
               variant="ghost"
               size="icon-sm"
               className="text-muted-foreground"
-              aria-label={isLeftSidebarOpen ? labels.hideLeftSidebar : labels.showLeftSidebar}
+              aria-label={
+                isLeftSidebarOpen
+                  ? labels.hideLeftSidebar
+                  : labels.showLeftSidebar
+              }
               aria-pressed={isLeftSidebarOpen}
               onClick={onToggleLeftSidebar}
             >
@@ -97,12 +116,19 @@ export function WorkspaceShellLayout({
           </div>
         </div>
 
-        <div className="flex h-full w-full items-center justify-start px-3">{titlebarCenter}</div>
+        <div className="titlebar-control flex h-full w-full items-center justify-start px-3">
+          {titlebarCenter}
+        </div>
 
-        <div className="flex h-full w-full min-w-0 items-center">{sidePaneHeader}</div>
+        <div className="flex h-full w-full min-w-0 items-center">
+          {sidePaneHeader}
+        </div>
       </header>
 
-      <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns: bodyGridTemplateColumns }}>
+      <div
+        className="grid min-h-0 flex-1"
+        style={{ gridTemplateColumns: bodyGridTemplateColumns }}
+      >
         {isLeftSidebarOpen ? leftSidebar : null}
         {isLeftSidebarOpen ? (
           <div
@@ -145,7 +171,9 @@ export function WorkspaceEmptyStateView({
     <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
       <div>
         <h2 className="text-sm font-medium">{title}</h2>
-        <p className="mt-2 max-w-sm text-xs text-muted-foreground">{description}</p>
+        <p className="mt-2 max-w-sm text-xs text-muted-foreground">
+          {description}
+        </p>
       </div>
     </div>
   );
