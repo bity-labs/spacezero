@@ -89,6 +89,7 @@ export interface ThreadProps {
   readonly composerStartContent?: ReactNode;
   readonly composerContextUsage?: ComposerUsage;
   readonly assistantActivityLabel?: string;
+  readonly showAssistantLoader?: boolean;
 }
 
 const defaultLabels = {
@@ -497,6 +498,7 @@ export function Thread({
   composerStartContent,
   composerContextUsage,
   assistantActivityLabel,
+  showAssistantLoader = false,
 }: ThreadProps): ReactElement {
   const labels = { ...defaultLabels, ...labelOverrides };
   const loadingTick = useLoadingTick(state === "loading");
@@ -560,10 +562,9 @@ export function Thread({
               )}
             </ThreadPrimitive.Messages>
             {assistantActivityLabel ? (
-              <div className="flex flex-col items-start gap-2">
-                <ThinkingIndicator label={assistantActivityLabel} />
-                <TypingIndicator />
-              </div>
+              <ThinkingIndicator label={assistantActivityLabel} />
+            ) : showAssistantLoader ? (
+              <TypingIndicator />
             ) : null}
           </div>
         </ThreadPrimitive.Viewport>

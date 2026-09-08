@@ -59,9 +59,24 @@ const runningTurnActivityLabel = (
 
 const assistantActivityLabel = (
   projection: SavedConversationProjection,
-): string | undefined => {
-  if (projection.runtime.status !== "running") return undefined;
-  return runningTurnActivityLabel(projection) ?? "Thinking";
+): string | undefined => runningTurnActivityLabel(projection);
+
+const runningTurnHasVisibleOutput = (
+  projection: SavedConversationProjection,
+): boolean => {
+  if (projection.runtime.status !== "running") return false;
+  const turnId =
+    projection.runtime.activeTurnId ?? projection.runtime.latestTurnId;
+  return projection.messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      (turnId === undefined || message.turnId === turnId) &&
+      message.parts.some(
+        (part) =>
+          (part.type === "text" || part.type === "reasoning") &&
+          part.text.trim().length > 0,
+      ),
+  );
 };
 
 const textFromAppendMessage = (message: AppendMessage): string =>
@@ -470,6 +485,11 @@ export function SavedConversationThread({
           {...(activityLabel === undefined
             ? {}
             : { assistantActivityLabel: activityLabel })}
+          showAssistantLoader={
+            projection.runtime.status === "running" &&
+            activityLabel === undefined &&
+            !runningTurnHasVisibleOutput(projection)
+          }
           {...(projection.actions.stop === "available" &&
           activeStopTarget !== undefined
             ? {

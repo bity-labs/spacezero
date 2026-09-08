@@ -701,6 +701,9 @@ describe("SavedConversationThread", () => {
       await screen.findByText("Reading workspace status"),
     ).toBeInTheDocument();
     expect(
+      screen.queryByLabelText("Assistant is typing"),
+    ).not.toBeInTheDocument();
+    expect(
       screen.queryByText("Assistant is responding."),
     ).not.toBeInTheDocument();
   });
@@ -796,7 +799,20 @@ describe("SavedConversationThread", () => {
           userMessageId: "running-user-message",
           assistantMessageId: "running-assistant-message",
           assistantMessageIds: ["running-assistant-message"],
-          draftMessages: [],
+          draftMessages: [
+            {
+              id: "running-assistant-message",
+              text: "Partial answer",
+              parts: [
+                {
+                  id: "running-assistant-message:text:1",
+                  type: "text" as const,
+                  order: 1,
+                  text: "Partial answer",
+                },
+              ],
+            },
+          ],
           providerId: "anthropic",
           modelId: "claude-sonnet-4-5",
           thinkingLevel: "off" as const,
@@ -825,8 +841,11 @@ describe("SavedConversationThread", () => {
 
     render(<SavedConversationThread store={store} />);
 
-    expect(await screen.findByText("Thinking")).toBeInTheDocument();
-    expect(screen.getByLabelText("Assistant is typing")).toBeInTheDocument();
+    expect(await screen.findByText("Partial answer")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Assistant is typing"),
+    ).not.toBeInTheDocument();
     const input = screen.getByRole("textbox", { name: "Message" });
     fireEvent.change(input, { target: { value: "Follow up while running" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -1027,8 +1046,10 @@ describe("SavedConversationThread", () => {
     });
     const { rerender } = render(<SavedConversationThread store={running} />);
 
-    expect(await screen.findByText("Thinking")).toBeInTheDocument();
-    expect(screen.getByLabelText("Assistant is typing")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Assistant is typing"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Thinking")).not.toBeInTheDocument();
 
     rerender(<SavedConversationThread store={recovery} />);
 
