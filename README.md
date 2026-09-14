@@ -1,5 +1,15 @@
 # Space Zero
 
+> **⚠️ Development stopped.**
+> Space Zero is no longer maintained or developed. See
+> [Why I'm stopping Space Zero](https://www.tibyverse.xyz/articles/why-im-stopping-space-zero)
+> for the full story.
+>
+> This `v2` branch contains the **v2 rebuild** — the standalone Workspace Host,
+> Desktop, and Client Runtime architecture described below. The `main` branch
+> contains **v0.1**, the original desktop application. Both branches are
+> archived in source form; nothing is being shipped.
+
 Space Zero is a local-first desktop interface for directing Pi-powered coding agents. The active `v0.1` line is a clean rebuild around a standalone, remote-ready Workspace Host and a polished desktop client.
 
 ## Status
