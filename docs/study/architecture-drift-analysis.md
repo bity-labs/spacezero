@@ -7,7 +7,6 @@ The codebase was audited against:
 - `docs/coding-standards.md`
 - `docs/context.md`
 - `docs/feature-architecture.md`
-- Relevant rules under `docs/engineering/`
 - Accepted ADRs `0001`–`0024`
 - Source code, tests, release workflows, and recent churn
 

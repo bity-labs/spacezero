@@ -357,10 +357,9 @@ Rules for capabilities explicitly marked deferred are retained product reference
 - `docs/adr/0041-use-convex-auth-for-space-zero-accounts.md`
 - `docs/adr/0042-use-first-class-host-owned-global-chat-sessions.md`
 - `docs/adr/0043-use-assistant-ui-over-host-owned-structured-conversations.md`
-- Engineering rules: `docs/engineering/`
 
 ## Maintenance Rules
 
 - Update this file when durable product language changes.
 - Do not store temporary implementation plans here; use GitHub Issues for specs and tasks.
-- Do not duplicate coding doctrine here; use `docs/coding-standards.md` and `docs/engineering/`.
+- Do not duplicate coding doctrine here; use `docs/coding-standards.md`.

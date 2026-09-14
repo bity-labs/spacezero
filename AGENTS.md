@@ -1,7 +1,5 @@
 # Agent Instructions
 
-This repository uses TStack: a small harness for disciplined agentic software delivery.
-
 ## Project Identity
 
 Space Zero is an Electron desktop app for software builders. It aims to become a zero-friction workspace for agentic development: projects, code, agents, terminal/session output, browser preview/debugging, local knowledge, and GitHub workflows in one desktop GUI.
@@ -12,8 +10,7 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 2. Read `docs/coding-standards.md` before changing code.
 3. Read `docs/context.md` when the task touches product behavior, domain language, or user-facing concepts.
 4. Read `docs/feature-architecture.md` before adding, moving, or reorganizing feature source code.
-5. Read `docs/engineering/index.md` and load only the engineering rule files relevant to the task.
-6. Check `docs/adr/` before changing Electron architecture, process boundaries, data ownership, persistence, IPC, packaging, or testing strategy.
+5. Check `docs/adr/` before changing Electron architecture, process boundaries, data ownership, persistence, IPC, packaging, or testing strategy.
 
 ## Source of Truth
 
@@ -21,9 +18,7 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 - `docs/context.md` holds durable Space Zero product and domain language.
 - `docs/coding-standards.md` holds project-level implementation expectations.
 - `docs/feature-architecture.md` holds feature module layout, file naming, and runtime-boundary rules.
-- `docs/engineering/` holds reusable TStack engineering doctrine.
 - `docs/adr/` holds important architectural decisions and rationale.
-- `.agents/skills/` holds reusable workflows that use the docs.
 
 ## Current Architecture Snapshot
 

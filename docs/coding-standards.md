@@ -13,12 +13,11 @@ Make small, intentional, validated changes that preserve the Desktop/Workspace H
 1. Read `AGENTS.md`.
 2. Read `docs/context.md` when the task touches product behavior, domain language, or user-facing concepts.
 3. Read `docs/feature-architecture.md` before adding, moving, or reorganizing feature source.
-4. Load only the relevant engineering rules from `docs/engineering/index.md`.
-5. Check active ADRs before changing architecture, runtime boundaries, persistence, packaging, authentication, or testing strategy.
-6. Understand the requested outcome before editing.
-7. Make the smallest focused change that solves the task.
-8. Validate with relevant checks and tests, or state clearly what could not be run.
-9. Report what changed, what was validated, and any remaining risk.
+4. Check active ADRs before changing architecture, runtime boundaries, persistence, packaging, authentication, or testing strategy.
+5. Understand the requested outcome before editing.
+6. Make the smallest focused change that solves the task.
+7. Validate with relevant checks and tests, or state clearly what could not be run.
+7. Report what changed, what was validated, and any remaining risk.
 
 ## Workspace Tooling and Commands
 
@@ -64,8 +63,6 @@ packages/
   pi-adapter/       Host-side Effect boundary around Pi
   ui/               Browser-safe React UI primitives and Tailwind v4 theme entrypoint
 
-docs/               TStack docs, ADRs, and engineering doctrine
-.agents/             TStack skills and prompts
 scripts/             Repository and release helpers
 ```
 
@@ -282,7 +279,7 @@ The Local Host owns one private SQLite database under operating-system applicati
 
 ## Testing Standards
 
-Follow ADR 0036 and `docs/engineering/testing.md`.
+Follow ADR 0036.
 
 - Use Vitest with Node environments for Host/packages/Electron main and jsdom with Testing Library for React.
 - Use Effect test utilities for Layers, scopes, clocks, retries, interruption, and cleanup.
