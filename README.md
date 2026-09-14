@@ -1,5 +1,16 @@
 # Space Zero
 
+> **⚠️ Development stopped.**
+> Space Zero is no longer maintained or developed. See
+> [Why I'm stopping Space Zero](https://www.tibyverse.xyz/articles/why-im-stopping-space-zero)
+> for the full story.
+>
+> This `main` branch contains **v0.1** — the original desktop application
+> (Electron, typed IPC, local-first agent workspace). The `v2` branch contains
+> the **v2 rebuild** around the standalone Workspace Host, Desktop, and Client
+> Runtime architecture. Both branches are archived in source form; nothing is
+> being shipped.
+
 The zero-friction workspace for agentic development.
 
 ## Stack
