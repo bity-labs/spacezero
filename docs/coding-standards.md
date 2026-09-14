@@ -12,8 +12,7 @@ Make small, intentional, validated changes that preserve Electron security bound
 
 1. Read `AGENTS.md`.
 2. Read `docs/context.md` when the task touches product behavior, domain language, or user-facing concepts.
-3. Load only the relevant engineering rules from `docs/engineering/index.md`.
-4. Check ADRs before changing architecture, process boundaries, persistence, packaging, or testing strategy.
+3. Check ADRs before changing architecture, process boundaries, persistence, packaging, or testing strategy.
 5. Understand the requested outcome before editing.
 6. Make the smallest focused change that solves the task.
 7. Validate the change with relevant checks, tests, or a clear explanation of what could not be run.
@@ -54,8 +53,7 @@ src/preload   Safe typed bridge exposed to the renderer as window.spacezero
 src/shared    App-wide shared IPC channels, contracts, and cross-process TypeScript types
 src/renderer  React app UI entrypoint, global renderer components, styles, and renderer tests
 src/features  Process-aware feature modules split into main, renderer, and shared runtime surfaces
-docs          TStack harness docs, ADRs, and engineering doctrine
-.agents       TStack skills and prompts
+docs          Project docs, ADRs, and architecture decisions
 scripts       Project helper scripts
 ```
 

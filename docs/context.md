@@ -273,10 +273,9 @@ The primary user is a software builder who uses AI agents while building applica
 - `docs/adr/0021-local-multi-architecture-macos-release-artifacts.md`
 - `docs/adr/0022-use-context-scoped-side-pane-tabs.md`
 - `docs/adr/0023-use-diffs-edit-for-source-and-git-diff-editing.md`
-- Engineering rules: `docs/engineering/`
 
 ## Maintenance Rules
 
 - Update this file when durable product language changes.
 - Do not store temporary implementation plans here; use GitHub Issues for specs and tasks.
-- Do not duplicate coding doctrine here; use `docs/coding-standards.md` and `docs/engineering/`.
+- Do not duplicate coding doctrine here; use `docs/coding-standards.md`.
